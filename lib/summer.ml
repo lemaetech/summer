@@ -8,13 +8,130 @@
  * %%NAME%% %%VERSION%%
  *-------------------------------------------------------------------------*)
 
-open Lwt.Infix
-
 (* Summer is a http 1.1 server as outlined in the following RFCs
    1. https://datatracker.ietf.org/doc/html/rfc7230
    2. https://datatracker.ietf.org/doc/html/rfc7231 *)
+open Lwt.Infix
 
-(* let handle_connection _client_addr _client_socket = Lwt.return_unit *)
+(* Parsers defined at https://datatracker.ietf.org/doc/html/rfc7230#appendix-B *)
+module Parser (P : Reparse.PARSER) = struct
+  open P
+
+  let tchar =
+    char_if (function
+      | '!' | '#' | '$' | '%' | '&' | '\'' | '*' | '+' | '-' | '.' | '^' | '_'
+       |'`' | '|' | '~' ->
+          true
+      | _ -> false )
+    <|> digit <|> alpha
+
+  let token = take ~at_least:1 tchar >>= string_of_chars
+
+  (*-- https://datatracker.ietf.org/doc/html/rfc3986#section-2.3 --*)
+  let unreserved =
+    alpha <|> digit
+    <|> char_if (function '-' | '.' | '_' | '~' -> true | _ -> false)
+    >>| fun c -> `Char c
+
+  let pct_encoded =
+    (char '%', hex_digit, hex_digit)
+    <$$$> fun pct hex1 hex2 -> `String (Format.sprintf "%c%c%c" pct hex1 hex2)
+
+  let sub_delims =
+    char_if (function
+      | '!' | '$' | '&' | '\'' | '(' | ')' | '*' | '+' | ',' | ';' | '=' -> true
+      | _ -> false )
+    >>| fun c -> `Char c
+
+  let colon = char ':' >>| fun c -> `Char c
+  let at = char '@' >>| fun c -> `Char c
+
+  (*-- https://datatracker.ietf.org/doc/html/rfc3986#section-3.3 --*)
+  let pchar = unreserved <|> pct_encoded <|> sub_delims <|> colon <|> at
+
+  let to_string l =
+    let buf = Buffer.create 0 in
+    List.iter
+      (function
+        | `Char c -> Buffer.add_char buf c
+        | `String s -> Buffer.add_string buf s )
+      l ;
+    Buffer.contents buf
+
+  (*-- https://datatracker.ietf.org/doc/html/rfc3986#section-3.2.1 --*)
+  let userinfo =
+    take (unreserved <|> pct_encoded <|> sub_delims <|> colon) >>| to_string
+
+  (*-- https://datatracker.ietf.org/doc/html/rfc3986#section-3.2.2 --*)
+  let host =
+    let ip_literal = return "" in
+    let ipv4_address = return "" in
+    let reg_name = return "" in
+    ip_literal <|> ipv4_address <|> reg_name
+
+  let segment = take pchar >>| to_string
+
+  (*-- https://datatracker.ietf.org/doc/html/rfc3986#section-3.4 --*)
+  let query =
+    optional (char '?')
+    >>= function
+    | Some _ ->
+        take
+          (any
+             [ pchar
+             ; (char '/' >>| fun c -> `Char c)
+             ; (char '?' >>| fun c -> `Char c) ] )
+        >>| fun txt -> Some (to_string txt)
+    | None -> return None
+
+  let scheme =
+    let* c1 = alpha in
+    let* l = take (alpha <|> digit <|> char '+' <|> char '-' <|> char '.') in
+    string_of_chars (c1 :: l)
+
+  (*-- https://datatracker.ietf.org/doc/html/rfc3986#section-3
+     hier-part   = "//" authority path-abempty
+                  / path-absolute
+                  / path-rootless
+                  / path-empty
+    --*)
+  let hier_part =
+    (* let userinfo = re *)
+    (*   let authority = *)
+    return ""
+
+  (*-- https://datatracker.ietf.org/doc/html/rfc3986#section-4.3 --*)
+  let absolute_uri =
+    let* scheme' = scheme in
+    let* hier_part' = char ':' *> hier_part in
+    let+ query' = query in
+    `Absolute_uri (scheme', hier_part', query')
+
+  (*-- request-target = origin-form / absolute-form / authority-form /
+      asterisk-form --*)
+  let request_target =
+    let absolute_path = take ~at_least:1 (char '/' *> segment) in
+    let origin_form =
+      absolute_path
+      >>= fun abs_path ->
+      optional (char '?')
+      >>= (function Some _ -> query >>| Option.some | None -> return None)
+      >>| fun query -> `Origin (abs_path, query) in
+    let absolute_form = absolute_uri in
+    origin_form <|> absolute_form
+end
+
+module Request = struct
+  type t = {meth: meth}
+
+  (* https://datatracker.ietf.org/doc/html/rfc7231#section-4 *)
+  and meth =
+    [`GET | `HEAD | `POST | `PUT | `DELETE | `CONNECT | `OPTIONS | `TRACE]
+
+  (* let request_line = *)
+  (*   let meth = token <* space in *)
+  (*   () *)
+end
 
 let start port handler =
   let listen_address = Unix.(ADDR_INET (inet_addr_loopback, port)) in

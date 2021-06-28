@@ -8,5 +8,12 @@
  * %%NAME%% %%VERSION%%
  *-------------------------------------------------------------------------*)
 
+module Request : sig
+  type t
+
+  type meth =
+    [`GET | `HEAD | `POST | `PUT | `DELETE | `CONNECT | `OPTIONS | `TRACE]
+end
+
 val start :
   int -> (Lwt_unix.sockaddr -> Lwt_unix.file_descr -> unit Lwt.t) -> 'a
