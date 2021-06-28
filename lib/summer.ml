@@ -207,7 +207,7 @@ module Parser (P : Reparse.PARSER) = struct
     let* scheme' = scheme >>| fun s -> `Scheme s in
     let* hier_part' = char ':' *> hier_part in
     let+ query' = query in
-    `Absolute_uri (scheme', hier_part', query')
+    (scheme', hier_part', query')
 
   (*-- request-target = origin-form / absolute-form / authority-form /
     asterisk-form --*)
@@ -215,8 +215,8 @@ module Parser (P : Reparse.PARSER) = struct
     let origin_form =
       let* abs_path = take ~at_least:1 (char '/' *> segment) in
       let+ query' = query in
-      `Origin (abs_path, query') in
-    let absolute_form = absolute_uri in
+      `Origin_form (abs_path, query') in
+    let absolute_form = absolute_uri >>| fun uri -> `Absolute_form uri in
     origin_form <|> absolute_form
 end
 
