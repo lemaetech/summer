@@ -8,5 +8,5 @@ Here's what I am working on now
 
 # Why Summer?
 
-Probably because using the tools, libraries in this repo should elicit feeling you get in summer. Warm, pleasant, happy, smiling with elevated mood ...
+Probably because using the tools, libraries in this repo should elicit feelings you get in summer. Warm, pleasant, happy, smiling with elevated mood ... :)
 
