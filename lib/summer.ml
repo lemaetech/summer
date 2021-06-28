@@ -189,38 +189,33 @@ module Parser (P : Reparse.PARSER) = struct
       *> ( (authority, path_abempty)
          <$$> fun authority' path_abempty' -> (authority', path_abempty') )
     in
-    any [alt1]
+    any [alt1] >>| fun part' -> `Hier_part part'
 
   (*-- https://datatracker.ietf.org/doc/html/rfc3986#section-3.4 --*)
   let query =
-    optional (char '?')
-    >>= function
-    | Some _ ->
-        take
-          (any
-             [ pchar
-             ; (char '/' >>| fun c -> `Char c)
-             ; (char '?' >>| fun c -> `Char c) ] )
-        >>| fun txt -> Some (to_string txt)
-    | None -> return None
+    optional
+      ( char '?'
+        *> take
+             (any
+                [ pchar
+                ; (char '/' >>| fun c -> `Char c)
+                ; (char '?' >>| fun c -> `Char c) ] )
+      >>| fun query' -> `Query (to_string query') )
 
   (*-- https://datatracker.ietf.org/doc/html/rfc3986#section-4.3 --*)
   let absolute_uri =
-    let* scheme' = scheme in
+    let* scheme' = scheme >>| fun s -> `Scheme s in
     let* hier_part' = char ':' *> hier_part in
     let+ query' = query in
     `Absolute_uri (scheme', hier_part', query')
 
   (*-- request-target = origin-form / absolute-form / authority-form /
-      asterisk-form --*)
+    asterisk-form --*)
   let request_target =
-    let absolute_path = take ~at_least:1 (char '/' *> segment) in
     let origin_form =
-      absolute_path
-      >>= fun abs_path ->
-      optional (char '?')
-      >>= (function Some _ -> query >>| Option.some | None -> return None)
-      >>| fun query -> `Origin (abs_path, query) in
+      let* abs_path = take ~at_least:1 (char '/' *> segment) in
+      let+ query' = query in
+      `Origin (abs_path, query') in
     let absolute_form = absolute_uri in
     origin_form <|> absolute_form
 end
