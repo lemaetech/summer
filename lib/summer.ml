@@ -92,7 +92,18 @@ module Request = struct
   let client_addr t = t.client_addr
   let connection_fd t = t.connection_fd
 
-  let pp_meth fmt t =
+  let rec pp fmt t =
+    let fields =
+      [ Fmt.field "meth" (fun p -> p.meth) pp_meth
+      ; Fmt.field "request_target" (fun p -> p.request_target) Fmt.string
+      ; Fmt.(
+          field "http_version"
+            (fun p -> p.http_version)
+            (pair ~sep:comma int int))
+      ; Fmt.field "headers" (fun p -> p.headers) pp_headers ] in
+    Fmt.record ~sep:Fmt.semi fields fmt t
+
+  and pp_meth fmt t =
     ( match t with
     | `GET -> "GET"
     | `HEAD -> "HEAD"
@@ -105,20 +116,9 @@ module Request = struct
     | `OTHER s -> Format.sprintf "OTHER (%s)" s )
     |> Format.fprintf fmt "%s"
 
-  let pp_headers fmt t =
+  and pp_headers fmt t =
     let header_field = Fmt.(pair ~sep:comma string string) in
     Fmt.(list ~sep:sp header_field) fmt t
-
-  let pp fmt t =
-    let fields =
-      [ Fmt.field "meth" (fun p -> p.meth) pp_meth
-      ; Fmt.field "request_target" (fun p -> p.request_target) Fmt.string
-      ; Fmt.(
-          field "http_version"
-            (fun p -> p.http_version)
-            (pair ~sep:comma int int))
-      ; Fmt.field "headers" (fun p -> p.headers) pp_headers ] in
-    Fmt.record ~sep:Fmt.semi fields fmt t
 
   let rec parse client_addr connection_fd =
     let input = Reparse_lwt_unix.Fd.create_input connection_fd in
