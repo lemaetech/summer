@@ -50,7 +50,9 @@ module Make_parser (P : Reparse.PARSER) = struct
   let request_line =
     let* meth = token <* space in
     let* request_target =
-      take_while ~while_:(is_not space) any_char <* space >>= string_of_chars
+      take_while ~while_:(is_not space) unsafe_any_char
+      >>= string_of_chars
+      <* space
     in
     let+ http_version =
       (*-- https://datatracker.ietf.org/doc/html/rfc7230#section-2.6 --*)
@@ -150,7 +152,6 @@ module Request = struct
       >>= fun http_version ->
       Parser.(parse input header_fields)
       >|= fun headers ->
-      _debug (fun k -> k "headers count: %d\n%!" (List.length headers)) ;
       {meth; request_target; http_version; headers; client_addr})
 
   and parse_meth meth =
@@ -208,7 +209,7 @@ let handle_connection request_handler client_addr fd =
     Request.t client_addr fd
     >>= function
     | Ok req ->
-        _debug (fun k -> k "req: %s\n%!" (Request.show req)) ;
+        _debug (fun k -> k "%s\n%!" (Request.show req)) ;
         Context.t req fd |> request_handler
     | Error e ->
         _debug (fun k -> k "Error: %s" e) ;
