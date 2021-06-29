@@ -149,6 +149,38 @@ module Request = struct
     | header -> `OTHER header
 end
 
+module Response = struct
+  type t = Request.t
+
+  type bigstring =
+    (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
+
+  external t : Request.t -> t = "%identity"
+
+  let respond_with_bigstring t ~(status_code : int) ~(reason_phrase : string)
+      ~(content_type : string) (body : bigstring) =
+    let iov = Lwt_unix.IO_vectors.create () in
+    let status_line =
+      Format.sprintf "HTTP/1.1 %d %s\r\n" status_code reason_phrase
+      |> Lwt_bytes.of_string in
+    Lwt_unix.IO_vectors.append_bigarray iov status_line 0
+      (Lwt_bytes.length status_line) ;
+    let content_type_header =
+      Format.sprintf "Content-Type: %s\r\n" content_type |> Lwt_bytes.of_string
+    in
+    Lwt_unix.IO_vectors.append_bigarray iov content_type_header 0
+      (Lwt_bytes.length content_type_header) ;
+    let content_length = Lwt_bytes.length body in
+    let content_length_header =
+      Format.sprintf "Content-Length: %d\r\n" content_length
+      |> Lwt_bytes.of_string in
+    Lwt_unix.IO_vectors.append_bigarray iov content_length_header 0
+      (Lwt_bytes.length content_length_header) ;
+    Lwt_unix.IO_vectors.append_bytes iov (Bytes.unsafe_of_string "\r\n") 0 2 ;
+    Lwt_unix.IO_vectors.append_bigarray iov body 0 content_length ;
+    Lwt_unix.writev (Request.connection_fd t) iov >|= fun _ -> ()
+end
+
 type request_handler = Request.t -> unit Lwt.t
 
 let handle_connection request_handler client_addr fd =

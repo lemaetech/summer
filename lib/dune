@@ -1,3 +1,4 @@
 (library
  (name summer)
- (libraries reparse reparse-lwt-unix lwt lwt.unix fmt))
+ (public_name summer)
+ (libraries cstruct reparse reparse-lwt-unix lwt lwt.unix fmt))
