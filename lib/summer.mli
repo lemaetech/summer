@@ -32,10 +32,10 @@ module Request : sig
 end
 
 module Response : sig
-  type t
-
   type bigstring =
     (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
+
+  type t
 
   val t : Request.t -> t
 
