@@ -201,7 +201,7 @@ let handle_connection request_handler client_addr fd =
         |> Lwt_unix.write_string fd response_txt 0
         >|= fun _ -> ())
 
-let start port handler =
+let start ~port handler =
   let listen_address = Unix.(ADDR_INET (inet_addr_loopback, port)) in
   Lwt_engine.set (new Lwt_engine.libev ()) ;
   Lwt.async (fun () ->
