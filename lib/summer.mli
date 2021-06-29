@@ -28,6 +28,7 @@ module Request : sig
   val headers : t -> (string * string) list
   val client_addr : t -> Lwt_unix.sockaddr
   val connection_fd : t -> Lwt_unix.file_descr
+  val pp : Format.formatter -> t -> unit
 end
 
 type request_handler = Request.t -> unit Lwt.t
