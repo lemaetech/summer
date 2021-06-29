@@ -92,7 +92,7 @@ module Request = struct
   let client_addr t = t.client_addr
   let connection_fd t = t.connection_fd
 
-  let parse_header meth =
+  let parse_meth meth =
     String.uppercase_ascii meth
     |> function
     | "GET" -> `GET
@@ -110,7 +110,7 @@ module Request = struct
     Lwt_result.(
       Parser.(parse input request_line)
       >>= fun (meth, request_target, (major, minor)) ->
-      let meth = parse_header meth in
+      let meth = parse_meth meth in
       ( if Char.equal major '1' && Char.equal minor '1' then return (1, 1)
       else fail "Invalid HTTP version" )
       >>= fun http_version ->
