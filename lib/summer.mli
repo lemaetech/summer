@@ -12,8 +12,24 @@ module Request : sig
   type t
 
   type meth =
-    [`GET | `HEAD | `POST | `PUT | `DELETE | `CONNECT | `OPTIONS | `TRACE]
+    [ `GET
+    | `HEAD
+    | `POST
+    | `PUT
+    | `DELETE
+    | `CONNECT
+    | `OPTIONS
+    | `TRACE
+    | `OTHER of string ]
+
+  val meth : t -> meth
+  val request_target : t -> string
+  val http_version : t -> int * int
+  val headers : t -> (string * string) list
+  val client_addr : t -> Lwt_unix.sockaddr
+  val connection_fd : t -> Lwt_unix.file_descr
 end
 
-val start :
-  int -> (Lwt_unix.sockaddr -> Lwt_unix.file_descr -> unit Lwt.t) -> 'a
+type request_handler = Request.t -> unit Lwt.t
+
+val start : int -> request_handler -> 'a
