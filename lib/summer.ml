@@ -38,7 +38,8 @@ module Make_parser (P : Reparse.PARSER) = struct
     in
     let+ http_version =
       (*-- https://datatracker.ietf.org/doc/html/rfc7230#section-2.6 --*)
-      (string_cs "HTTP/" *> digit <* char '.', digit) <$$> pair <* crlf
+      (string_cs "HTTP/" *> digit <* char '.', digit)
+      <$$> pair <* crlf <* trim_input_buffer
     in
     (meth, request_target, http_version)
 
@@ -59,7 +60,7 @@ module Make_parser (P : Reparse.PARSER) = struct
     let header_field =
       (field_name <* char ':' <* ows, field_value <* ows) <$$> pair <* crlf
     in
-    take header_field
+    take header_field <* trim_input_buffer
 end
 
 module Parser = Make_parser (Reparse_lwt_unix.Fd)
