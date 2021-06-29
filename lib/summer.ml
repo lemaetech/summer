@@ -11,7 +11,22 @@
 (* Summer is a http 1.1 server as outlined in the following RFCs
    1. https://datatracker.ietf.org/doc/html/rfc7230
    2. https://datatracker.ietf.org/doc/html/rfc7231 *)
+
 open Lwt.Infix
+
+let _debug_on =
+  ref
+    ( match String.trim @@ Sys.getenv "HTTP_DBG" with
+    | "" -> false
+    | _ -> true
+    | exception _ -> false )
+
+let _enable_debug b = _debug_on := b
+
+let _debug k =
+  if !_debug_on then
+    k (fun fmt ->
+        Printf.kfprintf (fun oc -> Printf.fprintf oc "\n%!") stdout fmt )
 
 (* Parsers defined at https://datatracker.ietf.org/doc/html/rfc7230#appendix-B *)
 module Make_parser (P : Reparse.PARSER) = struct
@@ -39,10 +54,7 @@ module Make_parser (P : Reparse.PARSER) = struct
     in
     let+ http_version =
       (*-- https://datatracker.ietf.org/doc/html/rfc7230#section-2.6 --*)
-      (string_cs "HTTP/" *> digit <* char '.', digit)
-      <$$> pair
-      <* crlf
-      <* trim_input_buffer
+      (string_cs "HTTP/" *> digit <* char '.', digit) <$$> pair <* crlf
     in
     (meth, request_target, http_version)
 
@@ -63,7 +75,7 @@ module Make_parser (P : Reparse.PARSER) = struct
     let header_field =
       (field_name <* char ':' <* ows, field_value <* ows) <$$> pair <* crlf
     in
-    take header_field <* trim_input_buffer
+    take header_field
 end
 
 module Parser = Make_parser (Reparse_lwt_unix.Fd)
@@ -125,7 +137,7 @@ module Request = struct
   let show t =
     let buf = Buffer.create 0 in
     let fmt = Format.formatter_of_buffer buf in
-    pp fmt t ; Buffer.contents buf
+    pp fmt t ; Format.fprintf fmt "%!" ; Buffer.contents buf
 
   let rec t (client_addr : Lwt_unix.sockaddr) fd =
     let input = Reparse_lwt_unix.Fd.create_input fd in
@@ -138,6 +150,7 @@ module Request = struct
       >>= fun http_version ->
       Parser.(parse input header_fields)
       >|= fun headers ->
+      _debug (fun k -> k "headers count: %d\n%!" (List.length headers)) ;
       {meth; request_target; http_version; headers; client_addr})
 
   and parse_meth meth =
@@ -194,8 +207,11 @@ let handle_connection request_handler client_addr fd =
   Lwt.(
     Request.t client_addr fd
     >>= function
-    | Ok req -> Context.t req fd |> request_handler
-    | Error _e ->
+    | Ok req ->
+        _debug (fun k -> k "req: %s\n%!" (Request.show req)) ;
+        Context.t req fd |> request_handler
+    | Error e ->
+        _debug (fun k -> k "Error: %s" e) ;
         let response_txt = "400 Bad Request" in
         String.length response_txt
         |> Lwt_unix.write_string fd response_txt 0
