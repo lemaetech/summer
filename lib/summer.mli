@@ -27,27 +27,28 @@ module Request : sig
   val http_version : t -> int * int
   val headers : t -> (string * string) list
   val client_addr : t -> Lwt_unix.sockaddr
-  val connection_fd : t -> Lwt_unix.file_descr
   val pp : Format.formatter -> t -> unit
+  val show : t -> string
 end
 
-module Response : sig
-  type bigstring =
-    (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
-
+module Context : sig
   type t
 
-  val t : Request.t -> t
-
-  val respond_with_bigstring :
-       t
-    -> status_code:int
-    -> reason_phrase:string
-    -> content_type:string
-    -> bigstring
-    -> unit Lwt.t
+  val request : t -> Request.t
+  val connection : t -> Lwt_unix.file_descr
 end
 
-type request_handler = Request.t -> unit Lwt.t
+type bigstring =
+  (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
+
+val respond_with_bigstring :
+     Context.t
+  -> status_code:int
+  -> reason_phrase:string
+  -> content_type:string
+  -> bigstring
+  -> unit Lwt.t
+
+type request_handler = Context.t -> unit Lwt.t
 
 val start : int -> request_handler -> 'a

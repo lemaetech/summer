@@ -13,4 +13,10 @@ let () =
   Arg.parse
     [("-p", Arg.Set_int port, " Listening port number (3000 by default)")]
     ignore "A echo HTTP server using summer" ;
-  Summer.start !port (fun _req -> Lwt.return ())
+  Summer.start !port (fun ctx ->
+      Summer.(
+        Context.request ctx
+        |> Request.show
+        |> Lwt_bytes.of_string
+        |> respond_with_bigstring ctx ~status_code:200 ~reason_phrase:"OK"
+             ~content_type:"text/html") )

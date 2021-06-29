@@ -26,7 +26,8 @@ module Make_parser (P : Reparse.PARSER) = struct
        |'`' | '|' | '~' ->
           true
       | _ -> false )
-    <|> digit <|> alpha
+    <|> digit
+    <|> alpha
 
   let token = take ~at_least:1 tchar >>= string_of_chars
 
@@ -39,7 +40,9 @@ module Make_parser (P : Reparse.PARSER) = struct
     let+ http_version =
       (*-- https://datatracker.ietf.org/doc/html/rfc7230#section-2.6 --*)
       (string_cs "HTTP/" *> digit <* char '.', digit)
-      <$$> pair <* crlf <* trim_input_buffer
+      <$$> pair
+      <* crlf
+      <* trim_input_buffer
     in
     (meth, request_target, http_version)
 
@@ -71,8 +74,7 @@ module Request = struct
     ; request_target: string
     ; http_version: int * int
     ; headers: (string * string) list
-    ; client_addr: Lwt_unix.sockaddr
-    ; connection_fd: Lwt_unix.file_descr }
+    ; client_addr: Lwt_unix.sockaddr }
 
   (* https://datatracker.ietf.org/doc/html/rfc7231#section-4 *)
   and meth =
@@ -91,7 +93,6 @@ module Request = struct
   let http_version t = t.http_version
   let headers t = t.headers
   let client_addr t = t.client_addr
-  let connection_fd t = t.connection_fd
 
   let rec pp fmt t =
     let fields =
@@ -121,9 +122,13 @@ module Request = struct
     let header_field = Fmt.(pair ~sep:comma string string) in
     Fmt.(list ~sep:sp header_field) fmt t
 
-  let rec t (client_addr : Lwt_unix.sockaddr)
-      (connection_fd : Lwt_unix.file_descr) =
-    let input = Reparse_lwt_unix.Fd.create_input connection_fd in
+  let show t =
+    let buf = Buffer.create 0 in
+    let fmt = Format.formatter_of_buffer buf in
+    pp fmt t ; Buffer.contents buf
+
+  let rec t (client_addr : Lwt_unix.sockaddr) fd =
+    let input = Reparse_lwt_unix.Fd.create_input fd in
     Lwt_result.(
       Parser.(parse input request_line)
       >>= fun (meth, request_target, (major, minor)) ->
@@ -133,7 +138,7 @@ module Request = struct
       >>= fun http_version ->
       Parser.(parse input header_fields)
       >|= fun headers ->
-      {meth; request_target; http_version; headers; client_addr; connection_fd})
+      {meth; request_target; http_version; headers; client_addr})
 
   and parse_meth meth =
     String.uppercase_ascii meth
@@ -149,48 +154,51 @@ module Request = struct
     | header -> `OTHER header
 end
 
-module Response = struct
-  type t = Request.t
+module Context = struct
+  type t = {request: Request.t; connection: Lwt_unix.file_descr}
 
-  type bigstring =
-    (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
-
-  external t : Request.t -> t = "%identity"
-
-  let respond_with_bigstring t ~(status_code : int) ~(reason_phrase : string)
-      ~(content_type : string) (body : bigstring) =
-    let iov = Lwt_unix.IO_vectors.create () in
-    let status_line =
-      Format.sprintf "HTTP/1.1 %d %s\r\n" status_code reason_phrase
-      |> Lwt_bytes.of_string in
-    Lwt_unix.IO_vectors.append_bigarray iov status_line 0
-      (Lwt_bytes.length status_line) ;
-    let content_type_header =
-      Format.sprintf "Content-Type: %s\r\n" content_type |> Lwt_bytes.of_string
-    in
-    Lwt_unix.IO_vectors.append_bigarray iov content_type_header 0
-      (Lwt_bytes.length content_type_header) ;
-    let content_length = Lwt_bytes.length body in
-    let content_length_header =
-      Format.sprintf "Content-Length: %d\r\n" content_length
-      |> Lwt_bytes.of_string in
-    Lwt_unix.IO_vectors.append_bigarray iov content_length_header 0
-      (Lwt_bytes.length content_length_header) ;
-    Lwt_unix.IO_vectors.append_bytes iov (Bytes.unsafe_of_string "\r\n") 0 2 ;
-    Lwt_unix.IO_vectors.append_bigarray iov body 0 content_length ;
-    Lwt_unix.writev (Request.connection_fd t) iov >|= fun _ -> ()
+  let t request connection = {request; connection}
+  let request t = t.request
+  let connection t = t.connection
 end
 
-type request_handler = Request.t -> unit Lwt.t
+type bigstring =
+  (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
+
+let respond_with_bigstring ctx ~(status_code : int) ~(reason_phrase : string)
+    ~(content_type : string) (body : bigstring) =
+  let iov = Lwt_unix.IO_vectors.create () in
+  let status_line =
+    Format.sprintf "HTTP/1.1 %d %s\r\n" status_code reason_phrase
+    |> Lwt_bytes.of_string in
+  Lwt_unix.IO_vectors.append_bigarray iov status_line 0
+    (Lwt_bytes.length status_line) ;
+  let content_type_header =
+    Format.sprintf "Content-Type: %s\r\n" content_type |> Lwt_bytes.of_string
+  in
+  Lwt_unix.IO_vectors.append_bigarray iov content_type_header 0
+    (Lwt_bytes.length content_type_header) ;
+  let content_length = Lwt_bytes.length body in
+  let content_length_header =
+    Format.sprintf "Content-Length: %d\r\n" content_length
+    |> Lwt_bytes.of_string in
+  Lwt_unix.IO_vectors.append_bigarray iov content_length_header 0
+    (Lwt_bytes.length content_length_header) ;
+  Lwt_unix.IO_vectors.append_bytes iov (Bytes.unsafe_of_string "\r\n") 0 2 ;
+  Lwt_unix.IO_vectors.append_bigarray iov body 0 content_length ;
+  Lwt_unix.writev (Context.connection ctx) iov >|= fun _ -> ()
+
+type request_handler = Context.t -> unit Lwt.t
 
 let handle_connection request_handler client_addr fd =
   Lwt.(
     Request.t client_addr fd
     >>= function
-    | Ok t -> request_handler t
+    | Ok req -> Context.t req fd |> request_handler
     | Error _e ->
         let response_txt = "400 Bad Request" in
-        Lwt_unix.write_string fd response_txt 0 (String.length response_txt)
+        String.length response_txt
+        |> Lwt_unix.write_string fd response_txt 0
         >|= fun _ -> ())
 
 let start port handler =
