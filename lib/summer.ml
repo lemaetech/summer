@@ -34,6 +34,10 @@ module Make_parser (P : Reparse.PARSER) = struct
 
   let pair a b = (a, b)
 
+  let _peek_dbg n =
+    let+ s = peek_string n in
+    _debug (fun k -> k "peek: %s\n%!" s)
+
   (*-- https://datatracker.ietf.org/doc/html/rfc7230#appendix-B --*)
   let tchar =
     char_if (function
@@ -54,29 +58,30 @@ module Make_parser (P : Reparse.PARSER) = struct
       >>= string_of_chars
       <* space
     in
-    let+ http_version =
+    let* http_version =
       (*-- https://datatracker.ietf.org/doc/html/rfc7230#section-2.6 --*)
       (string_cs "HTTP/" *> digit <* char '.', digit) <$$> pair <* crlf
     in
-    (meth, request_target, http_version)
+    trim_input_buffer *> return (meth, request_target, http_version)
 
   let ows = skip (space <|> htab) *> unit
 
   (*-- https://datatracker.ietf.org/doc/html/rfc7230#section-3.2 --*)
   let header_fields =
-    let field_name = token in
-    let field_value =
-      let field_content =
-        let c2 =
-          optional
-            (let* c1 = skip ~at_least:1 (space <|> htab) *> vchar in
-             string_of_chars [' '; c1])
-          >>| function Some s -> s | None -> "" in
-        (vchar, c2) <$$> fun c1 c2 -> Format.sprintf "%c%s" c1 c2 in
-      take field_content >>| String.concat "" in
     let header_field =
-      (field_name <* char ':' <* ows, field_value <* ows) <$$> pair <* crlf
-    in
+      let* field_name = token <* char ':' <* ows in
+      let+ field_value =
+        let field_content =
+          let c2 =
+            optional
+              (let* c1 = skip ~at_least:1 (space <|> htab) *> vchar in
+               string_of_chars [' '; c1])
+            >>| function Some s -> s | None -> "" in
+          (vchar, c2) <$$> fun c1 c2 -> Format.sprintf "%c%s" c1 c2 in
+        take field_content >>| String.concat "" <* crlf
+      in
+      _debug (fun k -> k "(%s,%s)\n%!" field_name field_value) ;
+      (field_name, field_value) in
     take header_field
 end
 
