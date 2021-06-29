@@ -121,7 +121,7 @@ module Request = struct
     let header_field = Fmt.(pair ~sep:comma string string) in
     Fmt.(list ~sep:sp header_field) fmt t
 
-  let rec parse (client_addr : Lwt_unix.sockaddr)
+  let rec t (client_addr : Lwt_unix.sockaddr)
       (connection_fd : Lwt_unix.file_descr) =
     let input = Reparse_lwt_unix.Fd.create_input connection_fd in
     Lwt_result.(
@@ -153,7 +153,7 @@ type request_handler = Request.t -> unit Lwt.t
 
 let handle_connection request_handler client_addr fd =
   Lwt.(
-    Request.parse client_addr fd
+    Request.t client_addr fd
     >>= function
     | Ok t -> request_handler t
     | Error _e ->
