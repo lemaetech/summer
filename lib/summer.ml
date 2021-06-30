@@ -214,7 +214,7 @@ let respond_with_bigstring ctx ~(status_code : int) ~(reason_phrase : string)
 
 type request_handler = Context.t -> unit Lwt.t
 
-let handle_connection request_handler client_addr fd =
+let rec handle_connection request_handler client_addr fd =
   Lwt.(
     Request.t client_addr fd
     >>= function
@@ -225,7 +225,9 @@ let handle_connection request_handler client_addr fd =
           |> function Some "close" -> true | Some _ | None -> false in
         let ctx = Context.t req fd in
         request_handler ctx
-        >>= fun () -> if close then Lwt_unix.close fd else return ()
+        >>= fun () ->
+        if close then Lwt_unix.close fd
+        else handle_connection request_handler client_addr fd
     | Error e ->
         _debug (fun k -> k "Error: %s" e) ;
         let response_txt = "400 Bad Request" in
@@ -237,7 +239,8 @@ let start ~port request_handler =
   let listen_address = Unix.(ADDR_INET (inet_addr_loopback, port)) in
   Lwt_engine.set (new Lwt_engine.libev ()) ;
   Lwt.async (fun () ->
-      Lwt_io.establish_server_with_client_socket ~backlog:11_000 listen_address
+      Lwt_io.establish_server_with_client_socket ~backlog:11_000 ~no_close:true
+        listen_address
         (handle_connection request_handler)
       >>= fun _server -> Lwt.return () ) ;
   let forever, _ = Lwt.wait () in
