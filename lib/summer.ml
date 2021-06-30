@@ -30,7 +30,7 @@ let _debug k =
 
 (* Parsers defined at https://datatracker.ietf.org/doc/html/rfc7230#appendix-B *)
 module Make_parser (P : Reparse.PARSER) = struct
-  include P
+  open P
 
   let pair a b = (a, b)
 
@@ -89,6 +89,7 @@ module Make_parser (P : Reparse.PARSER) = struct
     take header_field
 
   let request_meta = (request_line, header_fields) <$$> pair
+  let parse = parse
 end
 
 module Parser = Make_parser (Reparse_lwt_unix.Fd)
