@@ -83,7 +83,7 @@ module Make_parser (P : Reparse.PARSER) = struct
                string_of_chars [' '; c1])
             >>| function Some s -> s | None -> "" in
           (vchar, c2) <$$> fun c1 c2 -> Format.sprintf "%c%s" c1 c2 in
-        take field_content >>| String.concat "" <* crlf
+        take field_content >>| String.concat "" <* crlf <* trim_input_buffer
       in
       (field_name, field_value) in
     take header_field
