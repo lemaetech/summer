@@ -155,6 +155,7 @@ module Request = struct
       ( if Char.equal major '1' && Char.equal minor '1' then return (1, 1)
       else fail "Invalid HTTP version" )
       >>= fun http_version ->
+      _debug (fun k -> k "parsing headers.\n%!") ;
       Parser.(parse input header_fields)
       >|= fun headers ->
       {meth; request_target; http_version; headers; client_addr})
