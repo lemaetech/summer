@@ -19,4 +19,4 @@ let () =
         |> Request.show
         |> Lwt_bytes.of_string
         |> respond_with_bigstring ctx ~status_code:200 ~reason_phrase:"OK"
-             ~content_type:"text/html") )
+             ~content_type:"text/plain") )

@@ -60,7 +60,12 @@ module Make_parser (P : Reparse.PARSER) = struct
     in
     let* http_version =
       (*-- https://datatracker.ietf.org/doc/html/rfc7230#section-2.6 --*)
-      (string_cs "HTTP/" *> digit <* char '.', digit) <$$> pair <* crlf
+      (string_cs "HTTP/" *> digit <* char '.', digit)
+      <$$> pair
+      <* crlf
+      >>= fun (major, minor) ->
+      if Char.equal major '1' && Char.equal minor '1' then return (1, 1)
+      else Format.sprintf "Invalid HTTP version: (%c,%c)" major minor |> fail
     in
     trim_input_buffer *> return (meth, request_target, http_version)
 
@@ -80,9 +85,10 @@ module Make_parser (P : Reparse.PARSER) = struct
           (vchar, c2) <$$> fun c1 c2 -> Format.sprintf "%c%s" c1 c2 in
         take field_content >>| String.concat "" <* crlf
       in
-      _debug (fun k -> k "(%s,%s)\n%!" field_name field_value) ;
       (field_name, field_value) in
     take header_field
+
+  let request_meta = (request_line, header_fields) <$$> pair
 end
 
 module Parser = Make_parser (Reparse_lwt_unix.Fd)
@@ -117,12 +123,13 @@ module Request = struct
     let fields =
       [ Fmt.field "meth" (fun p -> p.meth) pp_meth
       ; Fmt.field "request_target" (fun p -> p.request_target) Fmt.string
-      ; Fmt.(
-          field "http_version"
-            (fun p -> p.http_version)
-            (pair ~sep:comma int int))
+      ; Fmt.field "http_version" (fun p -> p.http_version) pp_http_version
       ; Fmt.field "headers" (fun p -> p.headers) pp_headers ] in
-    Fmt.record ~sep:Fmt.semi fields fmt t
+    Fmt.record fields fmt t
+
+  and pp_http_version fmt t =
+    let comma' fmt _ = Fmt.string fmt "," in
+    Fmt.(pair ~sep:comma' int int) fmt t
 
   and pp_meth fmt t =
     ( match t with
@@ -138,8 +145,9 @@ module Request = struct
     |> Format.fprintf fmt "%s"
 
   and pp_headers fmt t =
-    let header_field = Fmt.(pair ~sep:comma string string) in
-    Fmt.(list ~sep:sp header_field) fmt t
+    let colon fmt _ = Fmt.string fmt ": " in
+    let header_field = Fmt.(pair ~sep:colon string string) in
+    Fmt.vbox Fmt.(list header_field) fmt t
 
   let show t =
     let buf = Buffer.create 0 in
@@ -149,15 +157,10 @@ module Request = struct
   let rec t (client_addr : Lwt_unix.sockaddr) fd =
     let input = Reparse_lwt_unix.Fd.create_input fd in
     Lwt_result.(
-      Parser.(parse input request_line)
-      >>= fun (meth, request_target, (major, minor)) ->
+      Parser.(parse input request_meta)
+      >|= fun (request_line, headers) ->
+      let meth, request_target, http_version = request_line in
       let meth = parse_meth meth in
-      ( if Char.equal major '1' && Char.equal minor '1' then return (1, 1)
-      else fail "Invalid HTTP version" )
-      >>= fun http_version ->
-      _debug (fun k -> k "parsing headers.\n%!") ;
-      Parser.(parse input header_fields)
-      >|= fun headers ->
       {meth; request_target; http_version; headers; client_addr})
 
   and parse_meth meth =
