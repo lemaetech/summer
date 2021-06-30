@@ -220,7 +220,12 @@ let handle_connection request_handler client_addr fd =
     >>= function
     | Ok req ->
         _debug (fun k -> k "%s\n%!" (Request.show req)) ;
-        Context.t req fd |> request_handler
+        let close =
+          List.assoc_opt "Connection" (Request.headers req)
+          |> function Some "close" -> true | Some _ | None -> false in
+        let ctx = Context.t req fd in
+        request_handler ctx
+        >>= fun () -> if close then Lwt_unix.close fd else return ()
     | Error e ->
         _debug (fun k -> k "Error: %s" e) ;
         let response_txt = "400 Bad Request" in
