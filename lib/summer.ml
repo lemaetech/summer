@@ -123,6 +123,8 @@ module Request = struct
     | `TRACE
     | `OTHER of string ]
 
+  type content_length = int
+
   let meth t = t.meth
   let request_target t = t.request_target
   let http_version t = t.http_version
