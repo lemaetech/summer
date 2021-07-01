@@ -88,7 +88,7 @@ module Make_parser (P : Reparse.PARSER) = struct
       (field_name, field_value) in
     take header_field
 
-  let request_meta = (request_line, header_fields) <$$> pair
+  let request_meta = (request_line, header_fields) <$$> pair <* crlf
   let parse = parse
 end
 
