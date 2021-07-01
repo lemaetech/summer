@@ -88,7 +88,7 @@ module Make_parser (P : Reparse.PARSER) = struct
       (field_name, field_value) in
     take header_field
 
-  let request_meta = (request_line, header_fields) <$$> pair
+  let request_meta = (request_line, header_fields) <$$> pair <* crlf
   let parse = parse
 end
 
@@ -214,18 +214,19 @@ let respond_with_bigstring ctx ~(status_code : int) ~(reason_phrase : string)
 
 type request_handler = Context.t -> unit Lwt.t
 
-let handle_connection request_handler client_addr fd =
+let rec handle_requests request_handler client_addr fd =
   Lwt.(
     Request.t client_addr fd
     >>= function
-    | Ok req ->
+    | Ok req -> (
         _debug (fun k -> k "%s\n%!" (Request.show req)) ;
-        let close =
-          List.assoc_opt "Connection" (Request.headers req)
-          |> function Some "close" -> true | Some _ | None -> false in
-        let ctx = Context.t req fd in
-        request_handler ctx
-        >>= fun () -> if close then Lwt_unix.close fd else return ()
+        Context.t req fd
+        |> request_handler
+        >>= fun () ->
+        List.assoc_opt "Connection" (Request.headers req)
+        |> function
+        | Some "close" -> Lwt_unix.close fd
+        | Some _ | None -> handle_requests request_handler client_addr fd )
     | Error e ->
         _debug (fun k -> k "Error: %s" e) ;
         let response_txt = "400 Bad Request" in
@@ -237,8 +238,9 @@ let start ~port request_handler =
   let listen_address = Unix.(ADDR_INET (inet_addr_loopback, port)) in
   Lwt_engine.set (new Lwt_engine.libev ()) ;
   Lwt.async (fun () ->
-      Lwt_io.establish_server_with_client_socket ~backlog:11_000 listen_address
-        (handle_connection request_handler)
+      Lwt_io.establish_server_with_client_socket ~backlog:11_000 ~no_close:true
+        listen_address
+        (handle_requests request_handler)
       >>= fun _server -> Lwt.return () ) ;
   let forever, _ = Lwt.wait () in
   Lwt_main.run forever
