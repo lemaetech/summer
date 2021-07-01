@@ -131,15 +131,8 @@ module Make_request_parser (P : Reparse.PARSER) = struct
   let trailer_part = header_fields <* crlf
 
   let chunk_data n =
-    let buf = Lwt_bytes.create n in
-    let idx = ref 0 in
-    let while_ = return (if !idx < n then true else false) in
-    let* () =
-      take_while_cb ~while_ unsafe_any_char ~on_take_cb:(fun c ->
-          Lwt_bytes.set buf !idx c ; incr idx ; unit )
-    in
-    let+ () = crlf >>= fun (_ : string) -> trim_input_buffer in
-    buf
+    let+ buf = unsafe_take_cstruct n <* crlf <* trim_input_buffer in
+    Cstruct.to_bigarray buf
 
   let chunk =
     let* sz = chunk_size in
