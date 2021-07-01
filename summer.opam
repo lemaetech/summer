@@ -9,7 +9,7 @@ tags: ["http" "form" "web"]
 homepage: "https://github.com/lemaetech/summer"
 bug-reports: "https://github.com/lemaetech/summer/issues"
 depends: [
-  "dune" {>= "2.7"}
+  "dune" {>= "2.9"}
   "ocaml" {>= "4.10.0"}
   "fmt" {>= "0.8.9"}
   "lwt"
@@ -21,7 +21,7 @@ depends: [
   "odoc" {with-doc}
 ]
 build: [
-  ["dune" "subst"] {dev}
+  ["dune" "subst" "--root" "."] {dev}
   [
     "dune"
     "build"
@@ -29,9 +29,12 @@ build: [
     name
     "-j"
     jobs
+    "--promote-install-files"
+    "false"
     "@install"
     "@runtest" {with-test}
     "@doc" {with-doc}
   ]
+  ["dune" "install" "-p" name "--create-install-files" name]
 ]
 dev-repo: "git+https://github.com/lemaetech/summer.git"
