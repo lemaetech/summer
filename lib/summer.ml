@@ -162,7 +162,7 @@ module Make_request_parser (P : Reparse.PARSER) = struct
         (fun (name, value) : chunk_trailer_header -> {name; value})
         headers'
     in
-    let+ _ = crlf in
+    let+ () = crlf >>= fun _ -> trim_input_buffer in
     headers
 
   let request_meta = (request_line, header_fields) <$$> pair <* crlf
