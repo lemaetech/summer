@@ -45,12 +45,18 @@ val respond_with_bigstring :
   -> bigstring
   -> unit Lwt.t
 
+(** {2 Request handling} *)
+
 type request_handler = conn:Lwt_unix.file_descr -> Request.t -> unit Lwt.t
 
-val stream_body_chunks :
+val read_body_chunks :
      conn:Lwt_unix.file_descr
   -> on_chunk:(bigstring -> len:int -> unit Lwt.t)
   -> unit Lwt.t
+(** [read_body_chunks] supports reading request body when
+    [Transfer-Encoding: chunked] is present in the request headers. *)
 
-val read_body : conn:Lwt_unix.file_descr -> bigstring Lwt.t
+val read_body_content : conn:Lwt_unix.file_descr -> bigstring Lwt.t
+(** [read_body_content] reads and returns request body content as bigstring. *)
+
 val start : port:int -> request_handler -> 'a

@@ -233,8 +233,8 @@ let respond_with_bigstring ~conn ~(status_code : int) ~(reason_phrase : string)
   Lwt_unix.IO_vectors.append_bigarray iov body 0 content_length ;
   Lwt_unix.writev conn iov >|= fun _ -> ()
 
-let stream_body_chunks ~conn:_ ~on_chunk:_ = Lwt.return ()
-let read_body ~conn:_ = Lwt.return (Lwt_bytes.create 0)
+let read_body_chunks ~conn:_ ~on_chunk:_ = Lwt.return ()
+let read_body_content ~conn:_ = Lwt.return (Lwt_bytes.create 0)
 
 type request_handler = conn:Lwt_unix.file_descr -> Request.t -> unit Lwt.t
 
