@@ -94,6 +94,15 @@ end
 
 module Parser = Make_parser (Reparse_lwt_unix.Fd)
 
+module Option = struct
+  include Option
+
+  let ( >>= ) b f = Option.bind b f [@@warning "-32"]
+  let ( >>| ) b f = Option.map f b
+end
+
+exception Invalid_content_length of string
+
 module Request = struct
   type t =
     { meth: meth
@@ -118,6 +127,26 @@ module Request = struct
   let request_target t = t.request_target
   let http_version t = t.http_version
   let headers t = t.headers
+
+  let body_type t =
+    let chunk =
+      Option.(
+        List.assoc_opt "Transfer-Encoding" t.headers
+        >>| fun encoding ->
+        String.split_on_char ',' encoding
+        |> List.map (fun tok -> String.trim tok)
+        |> fun encodings ->
+        if List.mem "chunked" encodings then `Chunked else `None) in
+    match chunk with
+    | Some `Chunked -> `Chunked
+    | Some `None | None -> (
+        List.assoc_opt "Content-Length" t.headers
+        |> function
+        | Some len -> (
+          try `Content (int_of_string len)
+          with _ -> raise (Invalid_content_length len) )
+        | None -> `None )
+
   let client_addr t = t.client_addr
 
   let rec pp fmt t =
@@ -210,23 +239,22 @@ let read_body ~conn:_ = Lwt.return (Lwt_bytes.create 0)
 type request_handler = conn:Lwt_unix.file_descr -> Request.t -> unit Lwt.t
 
 let rec handle_requests request_handler client_addr fd =
-  Lwt.(
-    Request.t client_addr fd
-    >>= function
-    | Ok req -> (
-        _debug (fun k -> k "%s\n%!" (Request.show req)) ;
-        request_handler ~conn:fd req
-        >>= fun () ->
-        List.assoc_opt "Connection" (Request.headers req)
-        |> function
-        | Some "close" -> Lwt_unix.close fd
-        | Some _ | None -> handle_requests request_handler client_addr fd )
-    | Error e ->
-        _debug (fun k -> k "Error: %s" e) ;
-        let response_txt = "400 Bad Request" in
-        String.length response_txt
-        |> Lwt_unix.write_string fd response_txt 0
-        >|= fun _ -> ())
+  Request.t client_addr fd
+  >>= function
+  | Ok req -> (
+      _debug (fun k -> k "%s\n%!" (Request.show req)) ;
+      request_handler ~conn:fd req
+      >>= fun () ->
+      List.assoc_opt "Connection" (Request.headers req)
+      |> function
+      | Some "close" -> Lwt_unix.close fd
+      | Some _ | None -> handle_requests request_handler client_addr fd )
+  | Error e ->
+      _debug (fun k -> k "Error: %s" e) ;
+      let response_txt = "400 Bad Request" in
+      String.length response_txt
+      |> Lwt_unix.write_string fd response_txt 0
+      >|= fun _ -> ()
 
 let start ~port request_handler =
   let listen_address = Unix.(ADDR_INET (inet_addr_loopback, port)) in

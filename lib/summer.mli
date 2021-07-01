@@ -28,6 +28,7 @@ module Request : sig
   val request_target : t -> string
   val http_version : t -> int * int
   val headers : t -> (string * string) list
+  val body_type : t -> [`Content of int | `Chunked | `None]
   val client_addr : t -> Lwt_unix.sockaddr
   val pp : Format.formatter -> t -> unit
   val show : t -> string
@@ -44,9 +45,6 @@ val respond_with_bigstring :
   -> bigstring
   -> unit Lwt.t
 
-(* type content_length = int *)
-(* type body = [`Content of content_length | `Transfer_encoding] *)
-(* type on_body = body -> unit Lwt.t *)
 type request_handler = conn:Lwt_unix.file_descr -> Request.t -> unit Lwt.t
 
 val stream_body :
