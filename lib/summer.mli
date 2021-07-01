@@ -34,8 +34,7 @@ module Request : sig
   val show : t -> string
 end
 
-type bigstring =
-  (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
+type bigstring = Lwt_bytes.t
 
 val respond_with_bigstring :
      conn:Lwt_unix.file_descr
