@@ -8,6 +8,8 @@
  * %%NAME%% %%VERSION%%
  *-------------------------------------------------------------------------*)
 
+(** [Summer] is a HTTP/1.1 server. *)
+
 module Request : sig
   type t
 
@@ -47,4 +49,8 @@ val respond_with_bigstring :
 (* type on_body = body -> unit Lwt.t *)
 type request_handler = conn:Lwt_unix.file_descr -> Request.t -> unit Lwt.t
 
+val stream_body :
+  conn:Lwt_unix.file_descr -> on_read:(Lwt_bytes.t -> unit Lwt.t) -> unit Lwt.t
+
+val read_body : conn:Lwt_unix.file_descr -> bigstring Lwt.t
 val start : port:int -> request_handler -> 'a
