@@ -47,7 +47,7 @@ val respond_with_bigstring :
 
 type request_handler = conn:Lwt_unix.file_descr -> Request.t -> unit Lwt.t
 
-val stream_body :
+val stream_body_chunks :
   conn:Lwt_unix.file_descr -> on_chunk:(bigstring -> unit Lwt.t) -> unit Lwt.t
 
 val read_body : conn:Lwt_unix.file_descr -> bigstring Lwt.t
