@@ -59,4 +59,7 @@ val read_body_chunks :
 val read_body_content : conn:Lwt_unix.file_descr -> bigstring Lwt.t
 (** [read_body_content] reads and returns request body content as bigstring. *)
 
+(** {2 HTTP server} *)
+
 val start : port:int -> request_handler -> 'a
+(** [start port request_handler] Starts HTTP/1.1 server at [port]. *)
