@@ -50,10 +50,17 @@ val respond_with_bigstring :
 
 type request_handler = conn:Lwt_unix.file_descr -> Request.t -> unit Lwt.t
 
+(** [chunk_extension] is an optional component of a chunk. It is defined at
+    https://datatracker.ietf.org/doc/html/rfc7230#section-4.1.1 *)
+type chunk_extension = {name: string; value: string option}
+
+type chunk_trailer_header = {name: string; value: string}
+
 val read_body_chunks :
      conn:Lwt_unix.file_descr
-  -> on_chunk:(bigstring -> len:int -> unit Lwt.t)
-  -> unit Lwt.t
+  -> on_chunk:(chunk:bigstring -> len:int -> chunk_extension list -> unit Lwt.t)
+  -> on_last_chunk:(chunk_extension list -> unit Lwt.t)
+  -> (chunk_trailer_header list, string) Lwt_result.t
 (** [read_body_chunks] supports reading request body when
     [Transfer-Encoding: chunked] is present in the request headers. *)
 

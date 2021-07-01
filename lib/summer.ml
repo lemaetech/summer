@@ -28,8 +28,11 @@ let _debug k =
     k (fun fmt ->
         Printf.kfprintf (fun oc -> Printf.fprintf oc "\n%!") stdout fmt )
 
+type chunk_extension = {name: string; value: string option}
+type chunk_trailer_header = {name: string; value: string}
+
 (* Parsers defined at https://datatracker.ietf.org/doc/html/rfc7230#appendix-B *)
-module Make_parser (P : Reparse.PARSER) = struct
+module Make_request_parser (P : Reparse.PARSER) = struct
   open P
 
   let pair a b = (a, b)
@@ -88,11 +91,85 @@ module Make_parser (P : Reparse.PARSER) = struct
       (field_name, field_value) in
     take header_field
 
+  let quoted_pair = char '\\' *> (whitespace <|> vchar)
+
+  (*-- qdtext = HTAB / SP /%x21 / %x23-5B / %x5D-7E / obs-text -- *)
+  let qdtext =
+    htab
+    <|> space
+    <|> char '\x21'
+    <|> char_if (function
+          | '\x23' .. '\x5B' -> true
+          | '\x5D' .. '\x7E' -> true
+          | _ -> false )
+
+  (*-- quoted-string  = DQUOTE *( qdtext / quoted-pair ) DQUOTE --*)
+  let quoted_string =
+    take_between ~start:(char '"')
+      (take (qdtext <|> quoted_pair) >>= string_of_chars)
+      ~end_:(char '"')
+    >>| String.concat ""
+
+  (*-- https://datatracker.ietf.org/doc/html/rfc7230#section-4.1 --*)
+  let chunk_ext =
+    let chunk_ext_name = token in
+    let chunk_ext_val = quoted_string <|> token in
+    take
+      ( (char ';' *> chunk_ext_name, optional (char '=' *> chunk_ext_val))
+      <$$> fun name value : chunk_extension -> {name; value} )
+
+  let chunk_size =
+    take ~at_least:1 hex_digit
+    >>= string_of_chars
+    >>= fun sz ->
+    try return (int_of_string sz)
+    with _ -> fail (Format.sprintf "invalid chunk_size: %s" sz)
+
+  let last_chunk =
+    take ~at_least:1 (char '0') >>= fun (_ : char list) -> chunk_ext
+
+  let trailer_part = header_fields <* crlf
+
+  let chunk_data n =
+    let buf = Lwt_bytes.create n in
+    let idx = ref 0 in
+    let while_ = return (if !idx < n then true else false) in
+    let* () =
+      take_while_cb ~while_ unsafe_any_char ~on_take_cb:(fun c ->
+          Lwt_bytes.set buf !idx c ; incr idx ; unit )
+    in
+    let+ () = crlf >>= fun (_ : string) -> trim_input_buffer in
+    buf
+
+  let chunk =
+    let* sz = chunk_size in
+    let* exts = chunk_ext <* crlf in
+    let+ chunk_data' = chunk_data sz >>= fun data -> data <$ crlf in
+    (sz, exts, chunk_data')
+
+  let chunked_body ~on_chunk ~on_last_chunk =
+    let* () =
+      take_while_cb chunk ~while_:(return true)
+        ~on_take_cb:(fun (sz, exts, chunk_data') ->
+          of_promise (on_chunk ~chunk:chunk_data' ~len:sz exts) )
+    in
+    let* exts = last_chunk in
+    let* () = of_promise (on_last_chunk exts) in
+    let* headers =
+      trailer_part
+      >>| fun headers' ->
+      List.map
+        (fun (name, value) : chunk_trailer_header -> {name; value})
+        headers'
+    in
+    let+ _ = crlf in
+    headers
+
   let request_meta = (request_line, header_fields) <$$> pair <* crlf
   let parse = parse
 end
 
-module Parser = Make_parser (Reparse_lwt_unix.Fd)
+module Request_parser = Make_request_parser (Reparse_lwt_unix.Fd)
 
 module Option = struct
   include Option
@@ -189,7 +266,7 @@ module Request = struct
   let rec t (client_addr : Lwt_unix.sockaddr) fd =
     let input = Reparse_lwt_unix.Fd.create_input fd in
     Lwt_result.(
-      Parser.(parse input request_meta)
+      Request_parser.(parse input request_meta)
       >|= fun (request_line, headers) ->
       let meth, request_target, http_version = request_line in
       let meth = parse_meth meth in
@@ -209,8 +286,7 @@ module Request = struct
     | header -> `OTHER header
 end
 
-type bigstring =
-  (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
+type bigstring = Lwt_bytes.t
 
 let respond_with_bigstring ~conn ~(status_code : int) ~(reason_phrase : string)
     ~(content_type : string) (body : bigstring) =
@@ -235,7 +311,11 @@ let respond_with_bigstring ~conn ~(status_code : int) ~(reason_phrase : string)
   Lwt_unix.IO_vectors.append_bigarray iov body 0 content_length ;
   Lwt_unix.writev conn iov >|= fun _ -> ()
 
-let read_body_chunks ~conn:_ ~on_chunk:_ = Lwt.return ()
+let read_body_chunks ~conn ~on_chunk ~on_last_chunk =
+  let input = Reparse_lwt_unix.Fd.create_input conn in
+  Request_parser.chunked_body ~on_chunk ~on_last_chunk
+  |> Request_parser.parse input
+
 let read_body_content ~conn:_ = Lwt.return (Lwt_bytes.create 0)
 
 type request_handler = conn:Lwt_unix.file_descr -> Request.t -> unit Lwt.t
