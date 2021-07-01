@@ -178,18 +178,10 @@ module Request = struct
     | header -> `OTHER header
 end
 
-module Context = struct
-  type t = {request: Request.t; connection: Lwt_unix.file_descr}
-
-  let t request connection = {request; connection}
-  let request t = t.request
-  let connection t = t.connection
-end
-
 type bigstring =
   (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
 
-let respond_with_bigstring ctx ~(status_code : int) ~(reason_phrase : string)
+let respond_with_bigstring ~conn ~(status_code : int) ~(reason_phrase : string)
     ~(content_type : string) (body : bigstring) =
   let iov = Lwt_unix.IO_vectors.create () in
   let status_line =
@@ -210,9 +202,9 @@ let respond_with_bigstring ctx ~(status_code : int) ~(reason_phrase : string)
     (Lwt_bytes.length content_length_header) ;
   Lwt_unix.IO_vectors.append_bytes iov (Bytes.unsafe_of_string "\r\n") 0 2 ;
   Lwt_unix.IO_vectors.append_bigarray iov body 0 content_length ;
-  Lwt_unix.writev (Context.connection ctx) iov >|= fun _ -> ()
+  Lwt_unix.writev conn iov >|= fun _ -> ()
 
-type request_handler = Context.t -> unit Lwt.t
+type request_handler = conn:Lwt_unix.file_descr -> Request.t -> unit Lwt.t
 
 let rec handle_requests request_handler client_addr fd =
   Lwt.(
@@ -220,8 +212,7 @@ let rec handle_requests request_handler client_addr fd =
     >>= function
     | Ok req -> (
         _debug (fun k -> k "%s\n%!" (Request.show req)) ;
-        Context.t req fd
-        |> request_handler
+        request_handler ~conn:fd req
         >>= fun () ->
         List.assoc_opt "Connection" (Request.headers req)
         |> function

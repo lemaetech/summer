@@ -31,24 +31,20 @@ module Request : sig
   val show : t -> string
 end
 
-module Context : sig
-  type t
-
-  val request : t -> Request.t
-  val connection : t -> Lwt_unix.file_descr
-end
-
 type bigstring =
   (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
 
 val respond_with_bigstring :
-     Context.t
+     conn:Lwt_unix.file_descr
   -> status_code:int
   -> reason_phrase:string
   -> content_type:string
   -> bigstring
   -> unit Lwt.t
 
-type request_handler = Context.t -> unit Lwt.t
+(* type content_length = int *)
+(* type body = [`Content of content_length | `Transfer_encoding] *)
+(* type on_body = body -> unit Lwt.t *)
+type request_handler = conn:Lwt_unix.file_descr -> Request.t -> unit Lwt.t
 
 val start : port:int -> request_handler -> 'a
