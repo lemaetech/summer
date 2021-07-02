@@ -307,28 +307,28 @@ type request_handler = conn:Lwt_unix.file_descr -> Request.t -> unit Lwt.t
 type bigstring = Lwt_bytes.t
 
 open Lwt.Infix
+module IO_vector = Lwt_unix.IO_vectors
 
 let respond_with_bigstring ~conn ~(status_code : int) ~(reason_phrase : string)
     ~(content_type : string) (body : bigstring) =
-  let iov = Lwt_unix.IO_vectors.create () in
+  let iov = IO_vector.create () in
   let status_line =
     Format.sprintf "HTTP/1.1 %d %s\r\n" status_code reason_phrase
     |> Lwt_bytes.of_string in
-  Lwt_unix.IO_vectors.append_bigarray iov status_line 0
-    (Lwt_bytes.length status_line) ;
+  IO_vector.append_bigarray iov status_line 0 (Lwt_bytes.length status_line) ;
   let content_type_header =
     Format.sprintf "Content-Type: %s\r\n" content_type |> Lwt_bytes.of_string
   in
-  Lwt_unix.IO_vectors.append_bigarray iov content_type_header 0
+  IO_vector.append_bigarray iov content_type_header 0
     (Lwt_bytes.length content_type_header) ;
   let content_length = Lwt_bytes.length body in
   let content_length_header =
     Format.sprintf "Content-Length: %d\r\n" content_length
     |> Lwt_bytes.of_string in
-  Lwt_unix.IO_vectors.append_bigarray iov content_length_header 0
+  IO_vector.append_bigarray iov content_length_header 0
     (Lwt_bytes.length content_length_header) ;
-  Lwt_unix.IO_vectors.append_bytes iov (Bytes.unsafe_of_string "\r\n") 0 2 ;
-  Lwt_unix.IO_vectors.append_bigarray iov body 0 content_length ;
+  IO_vector.append_bytes iov (Bytes.unsafe_of_string "\r\n") 0 2 ;
+  IO_vector.append_bigarray iov body 0 content_length ;
   Lwt_unix.writev conn iov >|= fun _ -> ()
 
 let rec handle_requests request_handler client_addr fd =
