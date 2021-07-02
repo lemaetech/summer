@@ -34,148 +34,44 @@ type header = string * string (* (name,value) *)
 
 type trailer_header = header
 
-(* Parsers defined at https://datatracker.ietf.org/doc/html/rfc7230#appendix-B *)
-module Make_request_parser (P : Reparse.PARSER) = struct
-  open P
+module Parser = Reparse_lwt_unix.Fd
+open Parser
 
-  let pair a b = (a, b)
+let pair a b = (a, b)
 
-  let _peek_dbg n =
-    let+ s = peek_string n in
-    _debug (fun k -> k "peek: %s\n%!" s)
+let _peek_dbg n =
+  let+ s = peek_string n in
+  _debug (fun k -> k "peek: %s\n%!" s)
 
-  (*-- https://datatracker.ietf.org/doc/html/rfc7230#appendix-B --*)
-  let tchar =
-    char_if (function
-      | '!' | '#' | '$' | '%' | '&' | '\'' | '*' | '+' | '-' | '.' | '^' | '_'
-       |'`' | '|' | '~' ->
-          true
-      | _ -> false )
-    <|> digit
-    <|> alpha
+(*-- https://datatracker.ietf.org/doc/html/rfc7230#appendix-B --*)
+let tchar =
+  char_if (function
+    | '!' | '#' | '$' | '%' | '&' | '\'' | '*' | '+' | '-' | '.' | '^' | '_'
+     |'`' | '|' | '~' ->
+        true
+    | _ -> false )
+  <|> digit
+  <|> alpha
 
-  let token = take ~at_least:1 tchar >>= string_of_chars
+let token = take ~at_least:1 tchar >>= string_of_chars
+let ows = skip (space <|> htab) *> unit
 
-  (*-- request-line = method SP request-target SP HTTP-version CRLF -- *)
-  let request_line =
-    let* meth = token <* space in
-    let* request_target =
-      take_while ~while_:(is_not space) unsafe_any_char
-      >>= string_of_chars
-      <* space
+(*-- https://datatracker.ietf.org/doc/html/rfc7230#section-3.2 --*)
+let header_fields =
+  let header_field =
+    let* field_name = token <* char ':' <* ows in
+    let+ field_value =
+      let field_content =
+        let c2 =
+          optional
+            (let* c1 = skip ~at_least:1 (space <|> htab) *> vchar in
+             string_of_chars [' '; c1])
+          >>| function Some s -> s | None -> "" in
+        (vchar, c2) <$$> fun c1 c2 -> Format.sprintf "%c%s" c1 c2 in
+      take field_content >>| String.concat "" <* crlf <* trim_input_buffer
     in
-    let* http_version =
-      (*-- https://datatracker.ietf.org/doc/html/rfc7230#section-2.6 --*)
-      (string_cs "HTTP/" *> digit <* char '.', digit)
-      <$$> pair
-      <* crlf
-      >>= fun (major, minor) ->
-      if Char.equal major '1' && Char.equal minor '1' then return (1, 1)
-      else Format.sprintf "Invalid HTTP version: (%c,%c)" major minor |> fail
-    in
-    trim_input_buffer *> return (meth, request_target, http_version)
-
-  let ows = skip (space <|> htab) *> unit
-
-  (*-- https://datatracker.ietf.org/doc/html/rfc7230#section-3.2 --*)
-  let header_fields =
-    let header_field =
-      let* field_name = token <* char ':' <* ows in
-      let+ field_value =
-        let field_content =
-          let c2 =
-            optional
-              (let* c1 = skip ~at_least:1 (space <|> htab) *> vchar in
-               string_of_chars [' '; c1])
-            >>| function Some s -> s | None -> "" in
-          (vchar, c2) <$$> fun c1 c2 -> Format.sprintf "%c%s" c1 c2 in
-        take field_content >>| String.concat "" <* crlf <* trim_input_buffer
-      in
-      (field_name, field_value) in
-    take header_field
-
-  let quoted_pair = char '\\' *> (whitespace <|> vchar)
-
-  (*-- qdtext = HTAB / SP /%x21 / %x23-5B / %x5D-7E / obs-text -- *)
-  let qdtext =
-    htab
-    <|> space
-    <|> char '\x21'
-    <|> char_if (function
-          | '\x23' .. '\x5B' -> true
-          | '\x5D' .. '\x7E' -> true
-          | _ -> false )
-
-  (*-- quoted-string  = DQUOTE *( qdtext / quoted-pair ) DQUOTE --*)
-  let quoted_string =
-    take_between ~start:(char '"')
-      (take (qdtext <|> quoted_pair) >>= string_of_chars)
-      ~end_:(char '"')
-    >>| String.concat ""
-
-  (*-- https://datatracker.ietf.org/doc/html/rfc7230#section-4.1 --*)
-  let chunk_ext =
-    let chunk_ext_name = token in
-    let chunk_ext_val = quoted_string <|> token in
-    take
-      ( (char ';' *> chunk_ext_name, optional (char '=' *> chunk_ext_val))
-      <$$> fun name value : chunk_extension -> {name; value} )
-    <?> "[chunk_ext]"
-
-  let chunk_size =
-    take ~at_least:1 hex_digit
-    >>= string_of_chars
-    >>= fun sz ->
-    try return (Format.sprintf "0x%s" sz |> int_of_string)
-    with _ -> fail (Format.sprintf "[chunk_size] Invalid chunk_size: %s" sz)
-
-  let trailer_part request_headers =
-    let allowed_trailers =
-      List.assoc_opt "Trailer" request_headers
-      |> function
-      | Some v -> String.split_on_char ',' v |> List.map String.trim
-      | None -> [] in
-    let+ headers = header_fields in
-    List.filter (fun (name, _) -> List.mem name allowed_trailers) headers
-
-  let chunk_data n =
-    let+ buf = unsafe_take_cstruct n <* trim_input_buffer in
-    Cstruct.to_bigarray buf
-
-  (* Chunk decoding algorithm is explained at
-     https://datatracker.ietf.org/doc/html/rfc7230#section-4.1.3
-  *)
-  let chunked_body request_headers ~on_chunk =
-    let content_length = ref 0 in
-    let* () =
-      let p = (chunk_size, chunk_ext <* crlf) <$$> pair in
-      let continue = ref true in
-      take_while_cb p ~while_:(return !continue) ~on_take_cb:(fun (sz, exts) ->
-          _debug (fun k -> k "[chunked_body] sz: %d\n%!" sz) ;
-          _debug (fun k -> k "[chunked_body] exts: %d\n%!" (List.length exts)) ;
-          if sz > 0 then (
-            content_length := !content_length + sz ;
-            let* chunk_data' = chunk_data sz in
-            _debug (fun k ->
-                k "[chunked_body] chunk_data: %d\n%!"
-                  (Lwt_bytes.length chunk_data') ) ;
-            on_chunk ~chunk:chunk_data' ~len:sz exts |> of_promise )
-          else (
-            continue := false ;
-            unit ) )
-    in
-    let+ trailer_headers =
-      trailer_part request_headers <* crlf <* trim_input_buffer
-    in
-    _debug (fun k ->
-        k "[chunked_body] trailer_headers: %d\n%!" (List.length trailer_headers) ) ;
-    (trailer_headers, !content_length)
-
-  let request_meta = (request_line, header_fields) <$$> pair <* crlf
-  let parse = parse
-end
-
-module Request_parser = Make_request_parser (Reparse_lwt_unix.Fd)
+    (field_name, field_value) in
+  take header_field
 
 module Option = struct
   include Option
@@ -267,10 +163,31 @@ module Request = struct
     let fmt = Format.formatter_of_buffer buf in
     pp fmt t ; Format.fprintf fmt "%!" ; Buffer.contents buf
 
+  (*-- request-line = method SP request-target SP HTTP-version CRLF -- *)
+  let request_line =
+    let* meth = token <* space in
+    let* request_target =
+      take_while ~while_:(is_not space) unsafe_any_char
+      >>= string_of_chars
+      <* space
+    in
+    let* http_version =
+      (*-- https://datatracker.ietf.org/doc/html/rfc7230#section-2.6 --*)
+      (string_cs "HTTP/" *> digit <* char '.', digit)
+      <$$> pair
+      <* crlf
+      >>= fun (major, minor) ->
+      if Char.equal major '1' && Char.equal minor '1' then return (1, 1)
+      else Format.sprintf "Invalid HTTP version: (%c,%c)" major minor |> fail
+    in
+    trim_input_buffer *> return (meth, request_target, http_version)
+
+  let request_meta = (request_line, header_fields) <$$> pair <* crlf
+
   let rec t (client_addr : Lwt_unix.sockaddr) fd =
     let input = Reparse_lwt_unix.Fd.create_input fd in
     Lwt_result.(
-      Request_parser.(parse input request_meta)
+      Parser.(parse input request_meta)
       >|= fun (request_line, headers) ->
       let meth, request_target, http_version = request_line in
       let meth = parse_meth meth in
@@ -290,6 +207,84 @@ module Request = struct
     | header -> `OTHER header
 end
 
+let read_body_chunks ~conn req ~on_chunk =
+  let quoted_pair = char '\\' *> (whitespace <|> vchar) in
+  (*-- qdtext = HTAB / SP /%x21 / %x23-5B / %x5D-7E / obs-text -- *)
+  let qdtext =
+    htab
+    <|> space
+    <|> char '\x21'
+    <|> char_if (function
+          | '\x23' .. '\x5B' -> true
+          | '\x5D' .. '\x7E' -> true
+          | _ -> false ) in
+  (*-- quoted-string  = DQUOTE *( qdtext / quoted-pair ) DQUOTE --*)
+  let quoted_string =
+    take_between ~start:(char '"')
+      (take (qdtext <|> quoted_pair) >>= string_of_chars)
+      ~end_:(char '"')
+    >>| String.concat "" in
+  (*-- https://datatracker.ietf.org/doc/html/rfc7230#section-4.1 --*)
+  let chunk_ext =
+    let chunk_ext_name = token in
+    let chunk_ext_val = quoted_string <|> token in
+    take
+      ( (char ';' *> chunk_ext_name, optional (char '=' *> chunk_ext_val))
+      <$$> fun name value : chunk_extension -> {name; value} )
+    <?> "[chunk_ext]" in
+  let chunk_size =
+    take ~at_least:1 hex_digit
+    >>= string_of_chars
+    >>= fun sz ->
+    try return (Format.sprintf "0x%s" sz |> int_of_string)
+    with _ -> fail (Format.sprintf "[chunk_size] Invalid chunk_size: %s" sz)
+  in
+  let trailer_part request_headers =
+    let allowed_trailers =
+      List.assoc_opt "Trailer" request_headers
+      |> function
+      | Some v -> String.split_on_char ',' v |> List.map String.trim
+      | None -> [] in
+    let+ headers = header_fields in
+    List.filter (fun (name, _) -> List.mem name allowed_trailers) headers in
+  let chunk_data n =
+    let+ buf = unsafe_take_cstruct n <* trim_input_buffer in
+    Cstruct.to_bigarray buf in
+  (* Chunk decoding algorithm is explained at
+     https://datatracker.ietf.org/doc/html/rfc7230#section-4.1.3
+  *)
+  let chunked_body request_headers ~on_chunk =
+    let content_length = ref 0 in
+    let* () =
+      let p = (chunk_size, chunk_ext <* crlf) <$$> pair in
+      let continue = ref true in
+      take_while_cb p ~while_:(return !continue) ~on_take_cb:(fun (sz, exts) ->
+          _debug (fun k -> k "[chunked_body] sz: %d\n%!" sz) ;
+          _debug (fun k -> k "[chunked_body] exts: %d\n%!" (List.length exts)) ;
+          if sz > 0 then (
+            content_length := !content_length + sz ;
+            let* chunk_data' = chunk_data sz in
+            _debug (fun k ->
+                k "[chunked_body] chunk_data: %d\n%!"
+                  (Lwt_bytes.length chunk_data') ) ;
+            on_chunk ~chunk:chunk_data' ~len:sz exts |> of_promise )
+          else (
+            continue := false ;
+            unit ) )
+    in
+    let+ trailer_headers =
+      trailer_part request_headers <* crlf <* trim_input_buffer
+    in
+    _debug (fun k ->
+        k "[chunked_body] trailer_headers: %d\n%!" (List.length trailer_headers) ) ;
+    (trailer_headers, !content_length) in
+  let input = Reparse_lwt_unix.Fd.create_input conn in
+  let p = chunked_body (Request.headers req) ~on_chunk in
+  Parser.parse input p
+
+let read_body_content ~conn:_ = Lwt.return (Lwt_bytes.create 0)
+
+type request_handler = conn:Lwt_unix.file_descr -> Request.t -> unit Lwt.t
 type bigstring = Lwt_bytes.t
 
 let respond_with_bigstring ~conn ~(status_code : int) ~(reason_phrase : string)
@@ -315,14 +310,7 @@ let respond_with_bigstring ~conn ~(status_code : int) ~(reason_phrase : string)
   Lwt_unix.IO_vectors.append_bigarray iov body 0 content_length ;
   Lwt_unix.writev conn iov >|= fun _ -> ()
 
-let read_body_chunks ~conn req ~on_chunk =
-  let input = Reparse_lwt_unix.Fd.create_input conn in
-  Request_parser.chunked_body (Request.headers req) ~on_chunk
-  |> Request_parser.parse input
-
-let read_body_content ~conn:_ = Lwt.return (Lwt_bytes.create 0)
-
-type request_handler = conn:Lwt_unix.file_descr -> Request.t -> unit Lwt.t
+open Lwt.Infix
 
 let rec handle_requests request_handler client_addr fd =
   _debug (fun k -> k "Waiting for new request ...\n%!") ;
