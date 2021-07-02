@@ -12,8 +12,6 @@
    1. https://datatracker.ietf.org/doc/html/rfc7230
    2. https://datatracker.ietf.org/doc/html/rfc7231 *)
 
-open Lwt.Infix
-
 let _debug_on =
   ref
     ( match String.trim @@ Sys.getenv "HTTP_DBG" with
@@ -287,6 +285,8 @@ let read_body_content ~conn:_ = Lwt.return (Lwt_bytes.create 0)
 type request_handler = conn:Lwt_unix.file_descr -> Request.t -> unit Lwt.t
 type bigstring = Lwt_bytes.t
 
+open Lwt.Infix
+
 let respond_with_bigstring ~conn ~(status_code : int) ~(reason_phrase : string)
     ~(content_type : string) (body : bigstring) =
   let iov = Lwt_unix.IO_vectors.create () in
@@ -309,8 +309,6 @@ let respond_with_bigstring ~conn ~(status_code : int) ~(reason_phrase : string)
   Lwt_unix.IO_vectors.append_bytes iov (Bytes.unsafe_of_string "\r\n") 0 2 ;
   Lwt_unix.IO_vectors.append_bigarray iov body 0 content_length ;
   Lwt_unix.writev conn iov >|= fun _ -> ()
-
-open Lwt.Infix
 
 let rec handle_requests request_handler client_addr fd =
   _debug (fun k -> k "Waiting for new request ...\n%!") ;
