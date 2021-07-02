@@ -267,9 +267,9 @@ let read_body_chunks ~conn (Request.{headers; _} as req) ~on_chunk =
             unit ) )
     in
     let remove_chunked headers =
-      let te = List.assoc C.transfer_encoding headers in
       let te =
-        String.split_on_char ',' te
+        List.assoc C.transfer_encoding headers
+        |> String.split_on_char ','
         |> List.map String.trim
         |> List.filter (fun e -> not (String.equal e "chunked"))
         |> String.concat "," in
