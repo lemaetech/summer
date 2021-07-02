@@ -10,14 +10,8 @@
 
 (** [Summer] is a HTTP/1.1 server. *)
 
-(** Request body content length type. *)
-type content_length = int
-
 (** Request header - (name * value) *)
 type header = string * string
-
-(** Header recevied as part of Transfer-Encoding:chunked body *)
-type trailer_header = header
 
 (** [chunk_extension] is an optional component of a chunk. It is defined at
     https://datatracker.ietf.org/doc/html/rfc7230#section-4.1.1 *)

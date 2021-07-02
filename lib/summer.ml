@@ -27,10 +27,7 @@ let _debug k =
         Printf.kfprintf (fun oc -> Printf.fprintf oc "\n%!") stdout fmt )
 
 type chunk_extension = {name: string; value: string option}
-type content_length = int
 type header = string * string (* (name,value) *)
-
-type trailer_header = header
 
 module Parser = Reparse_lwt_unix.Fd
 open Parser
