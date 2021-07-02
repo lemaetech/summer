@@ -10,6 +10,15 @@
 
 (** [Summer] is a HTTP/1.1 server. *)
 
+(** Request body content length type. *)
+type content_length = int
+
+(** Request header - (name * value) *)
+type header = string * string
+
+(** Header recevied as part of Transfer-Encoding:chunked body *)
+type trailer_header = header
+
 module Request : sig
   type t
 
@@ -24,12 +33,10 @@ module Request : sig
     | `TRACE
     | `OTHER of string ]
 
-  type content_length = int
-
   val meth : t -> meth
   val request_target : t -> string
   val http_version : t -> int * int
-  val headers : t -> (string * string) list
+  val headers : t -> header list
   val body_type : t -> [`Content of content_length | `Chunked | `None]
   val client_addr : t -> Lwt_unix.sockaddr
   val pp : Format.formatter -> t -> unit
@@ -54,13 +61,10 @@ type request_handler = conn:Lwt_unix.file_descr -> Request.t -> unit Lwt.t
     https://datatracker.ietf.org/doc/html/rfc7230#section-4.1.1 *)
 type chunk_extension = {name: string; value: string option}
 
-type chunk_trailer_header = {name: string; value: string}
-
 val read_body_chunks :
      conn:Lwt_unix.file_descr
   -> on_chunk:(chunk:bigstring -> len:int -> chunk_extension list -> unit Lwt.t)
-  -> on_last_chunk:(chunk_extension list -> unit Lwt.t)
-  -> (chunk_trailer_header list, string) Lwt_result.t
+  -> (trailer_header list * content_length, string) Lwt_result.t
 (** [read_body_chunks] supports reading request body when
     [Transfer-Encoding: chunked] is present in the request headers. *)
 

@@ -29,7 +29,10 @@ let _debug k =
         Printf.kfprintf (fun oc -> Printf.fprintf oc "\n%!") stdout fmt )
 
 type chunk_extension = {name: string; value: string option}
-type chunk_trailer_header = {name: string; value: string}
+type content_length = int
+type header = string * string (* (name,value) *)
+
+type trailer_header = header
 
 (* Parsers defined at https://datatracker.ietf.org/doc/html/rfc7230#appendix-B *)
 module Make_request_parser (P : Reparse.PARSER) = struct
@@ -117,46 +120,51 @@ module Make_request_parser (P : Reparse.PARSER) = struct
     take
       ( (char ';' *> chunk_ext_name, optional (char '=' *> chunk_ext_val))
       <$$> fun name value : chunk_extension -> {name; value} )
+    <?> "[chunk_ext]"
 
   let chunk_size =
     take ~at_least:1 hex_digit
     >>= string_of_chars
     >>= fun sz ->
-    try return (int_of_string sz)
-    with _ -> fail (Format.sprintf "invalid chunk_size: %s" sz)
+    try return (Format.sprintf "0x%s" sz |> int_of_string)
+    with _ -> fail (Format.sprintf "[chunk_size] Invalid chunk_size: %s" sz)
 
-  let last_chunk =
-    take ~at_least:1 (char '0') >>= fun (_ : char list) -> chunk_ext
-
-  let trailer_part = header_fields <* crlf
+  let trailer_part =
+    header_fields
+    >>= function
+    | headers when List.length headers = 0 -> return headers
+    | headers -> headers <$ crlf
 
   let chunk_data n =
-    let+ buf = unsafe_take_cstruct n <* crlf <* trim_input_buffer in
+    let+ buf = unsafe_take_cstruct n <* trim_input_buffer in
     Cstruct.to_bigarray buf
 
-  let chunk =
-    let* sz = chunk_size in
-    let* exts = chunk_ext <* crlf in
-    let+ chunk_data' = chunk_data sz >>= fun data -> data <$ crlf in
-    (sz, exts, chunk_data')
-
-  let chunked_body ~on_chunk ~on_last_chunk =
+  (* Chunk decoding algorithm is explained at
+     https://datatracker.ietf.org/doc/html/rfc7230#section-4.1.3
+  *)
+  let chunked_body ~on_chunk =
+    let content_length = ref 0 in
     let* () =
-      take_while_cb chunk ~while_:(return true)
-        ~on_take_cb:(fun (sz, exts, chunk_data') ->
-          of_promise (on_chunk ~chunk:chunk_data' ~len:sz exts) )
+      let p = (chunk_size, chunk_ext <* crlf) <$$> pair in
+      let continue = ref true in
+      take_while_cb p ~while_:(return !continue) ~on_take_cb:(fun (sz, exts) ->
+          _debug (fun k -> k "[chunked_body] sz: %d\n%!" sz) ;
+          _debug (fun k -> k "[chunked_body] exts: %d\n%!" (List.length exts)) ;
+          if sz > 0 then (
+            content_length := !content_length + sz ;
+            let* chunk_data' = chunk_data sz in
+            _debug (fun k ->
+                k "[chunked_body] chunk_data: %d\n%!"
+                  (Lwt_bytes.length chunk_data') ) ;
+            on_chunk ~chunk:chunk_data' ~len:sz exts |> of_promise )
+          else (
+            continue := false ;
+            unit ) )
     in
-    let* exts = last_chunk in
-    let* () = of_promise (on_last_chunk exts) in
-    let* headers =
-      trailer_part
-      >>| fun headers' ->
-      List.map
-        (fun (name, value) : chunk_trailer_header -> {name; value})
-        headers'
-    in
-    let+ () = crlf >>= fun _ -> trim_input_buffer in
-    headers
+    let+ trailer_headers = trailer_part <* crlf <* trim_input_buffer in
+    _debug (fun k ->
+        k "[chunked_body] trailer_headers: %d\n%!" (List.length trailer_headers) ) ;
+    (trailer_headers, !content_length)
 
   let request_meta = (request_line, header_fields) <$$> pair <* crlf
   let parse = parse
@@ -192,8 +200,6 @@ module Request = struct
     | `OPTIONS
     | `TRACE
     | `OTHER of string ]
-
-  type content_length = int
 
   let meth t = t.meth
   let request_target t = t.request_target
@@ -304,16 +310,16 @@ let respond_with_bigstring ~conn ~(status_code : int) ~(reason_phrase : string)
   Lwt_unix.IO_vectors.append_bigarray iov body 0 content_length ;
   Lwt_unix.writev conn iov >|= fun _ -> ()
 
-let read_body_chunks ~conn ~on_chunk ~on_last_chunk =
+let read_body_chunks ~conn ~on_chunk =
   let input = Reparse_lwt_unix.Fd.create_input conn in
-  Request_parser.chunked_body ~on_chunk ~on_last_chunk
-  |> Request_parser.parse input
+  Request_parser.chunked_body ~on_chunk |> Request_parser.parse input
 
 let read_body_content ~conn:_ = Lwt.return (Lwt_bytes.create 0)
 
 type request_handler = conn:Lwt_unix.file_descr -> Request.t -> unit Lwt.t
 
 let rec handle_requests request_handler client_addr fd =
+  _debug (fun k -> k "Waiting for new request ...\n%!") ;
   Request.t client_addr fd
   >>= function
   | Ok req -> (

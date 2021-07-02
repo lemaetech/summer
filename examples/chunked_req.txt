@@ -1,0 +1,10 @@
+GET / HTTP/1.1
+Host: localhost:1234
+Content-Type: text/plain
+Transfer-Encoding: chunked
+
+7
+Mozilla9
+Developer7
+Network0
+
