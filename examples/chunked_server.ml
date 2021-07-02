@@ -19,7 +19,8 @@ let () =
       | `Chunked -> (
           let buf = ref (Cstruct.create 0) in
           Lwt.(
-            Summer.read_body_chunks ~conn ~on_chunk:(fun ~chunk ~len _exts ->
+            Summer.read_body_chunks req ~conn
+              ~on_chunk:(fun ~chunk ~len _exts ->
                 buf := Cstruct.append !buf (Cstruct.of_bigarray ~len chunk) ;
                 Lwt.return () )
             >>= function

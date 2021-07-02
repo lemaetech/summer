@@ -19,6 +19,10 @@ type header = string * string
 (** Header recevied as part of Transfer-Encoding:chunked body *)
 type trailer_header = header
 
+(** [chunk_extension] is an optional component of a chunk. It is defined at
+    https://datatracker.ietf.org/doc/html/rfc7230#section-4.1.1 *)
+type chunk_extension = {name: string; value: string option}
+
 module Request : sig
   type t
 
@@ -57,12 +61,9 @@ val respond_with_bigstring :
 
 type request_handler = conn:Lwt_unix.file_descr -> Request.t -> unit Lwt.t
 
-(** [chunk_extension] is an optional component of a chunk. It is defined at
-    https://datatracker.ietf.org/doc/html/rfc7230#section-4.1.1 *)
-type chunk_extension = {name: string; value: string option}
-
 val read_body_chunks :
      conn:Lwt_unix.file_descr
+  -> Request.t
   -> on_chunk:(chunk:bigstring -> len:int -> chunk_extension list -> unit Lwt.t)
   -> (trailer_header list * content_length, string) Lwt_result.t
 (** [read_body_chunks] supports reading request body when

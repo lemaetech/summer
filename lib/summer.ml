@@ -129,11 +129,14 @@ module Make_request_parser (P : Reparse.PARSER) = struct
     try return (Format.sprintf "0x%s" sz |> int_of_string)
     with _ -> fail (Format.sprintf "[chunk_size] Invalid chunk_size: %s" sz)
 
-  let trailer_part =
-    header_fields
-    >>= function
-    | headers when List.length headers = 0 -> return headers
-    | headers -> headers <$ crlf
+  let trailer_part request_headers =
+    let allowed_trailers =
+      List.assoc_opt "Trailer" request_headers
+      |> function
+      | Some v -> String.split_on_char ',' v |> List.map String.trim
+      | None -> [] in
+    let+ headers = header_fields in
+    List.filter (fun (name, _) -> List.mem name allowed_trailers) headers
 
   let chunk_data n =
     let+ buf = unsafe_take_cstruct n <* trim_input_buffer in
@@ -142,7 +145,7 @@ module Make_request_parser (P : Reparse.PARSER) = struct
   (* Chunk decoding algorithm is explained at
      https://datatracker.ietf.org/doc/html/rfc7230#section-4.1.3
   *)
-  let chunked_body ~on_chunk =
+  let chunked_body request_headers ~on_chunk =
     let content_length = ref 0 in
     let* () =
       let p = (chunk_size, chunk_ext <* crlf) <$$> pair in
@@ -161,7 +164,9 @@ module Make_request_parser (P : Reparse.PARSER) = struct
             continue := false ;
             unit ) )
     in
-    let+ trailer_headers = trailer_part <* crlf <* trim_input_buffer in
+    let+ trailer_headers =
+      trailer_part request_headers <* crlf <* trim_input_buffer
+    in
     _debug (fun k ->
         k "[chunked_body] trailer_headers: %d\n%!" (List.length trailer_headers) ) ;
     (trailer_headers, !content_length)
@@ -310,9 +315,10 @@ let respond_with_bigstring ~conn ~(status_code : int) ~(reason_phrase : string)
   Lwt_unix.IO_vectors.append_bigarray iov body 0 content_length ;
   Lwt_unix.writev conn iov >|= fun _ -> ()
 
-let read_body_chunks ~conn ~on_chunk =
+let read_body_chunks ~conn req ~on_chunk =
   let input = Reparse_lwt_unix.Fd.create_input conn in
-  Request_parser.chunked_body ~on_chunk |> Request_parser.parse input
+  Request_parser.chunked_body (Request.headers req) ~on_chunk
+  |> Request_parser.parse input
 
 let read_body_content ~conn:_ = Lwt.return (Lwt_bytes.create 0)
 

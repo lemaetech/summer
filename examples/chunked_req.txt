@@ -2,9 +2,13 @@ GET / HTTP/1.1
 Host: localhost:1234
 Content-Type: text/plain
 Transfer-Encoding: chunked
+Trailer: Expires, Header1
 
-7
+7;ext1=ext1_v;ext2=ext2_v;ext3
 Mozilla9
 Developer7
 Network0
+Expires: Wed, 21 Oct 2015 07:28:00 GMT
+Header1: Header1 value text
+Header2: Header2 value text
 
