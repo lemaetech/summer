@@ -77,6 +77,12 @@ module Option = struct
   let ( >>= ) b f = Option.bind b f [@@warning "-32"]
 end
 
+module C = struct
+  let transfer_encoding = "Transfer-Encoding"
+  let trailer = "Trailer"
+  let content_length = "Content-Length"
+end
+
 module Request = struct
   type t =
     { meth: meth
@@ -105,7 +111,7 @@ module Request = struct
   let body_type t =
     let chunk =
       Option.(
-        List.assoc_opt "Transfer-Encoding" t.headers
+        List.assoc_opt C.transfer_encoding t.headers
         >>= fun encoding ->
         String.split_on_char ',' encoding
         |> List.map (fun tok -> String.trim tok)
@@ -198,7 +204,7 @@ module Request = struct
     | header -> `OTHER header
 end
 
-let read_body_chunks ~conn req ~on_chunk =
+let read_body_chunks ~conn (Request.{headers; _} as req) ~on_chunk =
   let quoted_pair = char '\\' *> (whitespace <|> vchar) in
   (*-- qdtext = HTAB / SP /%x21 / %x23-5B / %x5D-7E / obs-text -- *)
   let qdtext =
@@ -244,7 +250,7 @@ let read_body_chunks ~conn req ~on_chunk =
   (* Chunk decoding algorithm is explained at
      https://datatracker.ietf.org/doc/html/rfc7230#section-4.1.3
   *)
-  let chunked_body request_headers ~on_chunk =
+  let chunked_body headers ~on_chunk =
     let content_length = ref 0 in
     let* () =
       let p = (chunk_size, chunk_ext <* crlf) <$$> pair in
@@ -263,15 +269,27 @@ let read_body_chunks ~conn req ~on_chunk =
             continue := false ;
             unit ) )
     in
-    let+ trailer_headers =
-      trailer_part request_headers <* crlf <* trim_input_buffer
-    in
+    let remove_chunked headers =
+      let te = List.assoc C.transfer_encoding headers in
+      let te =
+        String.split_on_char ',' te
+        |> List.map String.trim
+        |> List.filter (fun e -> not (String.equal e "chunked"))
+        |> String.concat "," in
+      let headers = List.remove_assoc C.transfer_encoding headers in
+      if String.length te > 0 then (C.transfer_encoding, te) :: headers
+      else headers in
+    let+ trailer_headers = trailer_part headers <* crlf <* trim_input_buffer in
     _debug (fun k ->
         k "[chunked_body] trailer_headers: %d\n%!" (List.length trailer_headers) ) ;
-    (trailer_headers, !content_length) in
+    let headers =
+      List.remove_assoc C.trailer headers
+      |> remove_chunked
+      |> List.append trailer_headers
+      |> List.cons (C.content_length, string_of_int !content_length) in
+    ({req with headers} : Request.t) in
   let input = Reparse_lwt_unix.Fd.create_input conn in
-  let p = chunked_body (Request.headers req) ~on_chunk in
-  Parser.parse input p
+  chunked_body headers ~on_chunk |> Parser.parse input
 
 let read_body_content ~conn req =
   List.assoc_opt "Content-Length" (Request.headers req)

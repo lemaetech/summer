@@ -65,7 +65,7 @@ val read_body_chunks :
      conn:Lwt_unix.file_descr
   -> Request.t
   -> on_chunk:(chunk:bigstring -> len:int -> chunk_extension list -> unit Lwt.t)
-  -> (trailer_header list * content_length, string) Lwt_result.t
+  -> (Request.t, string) Lwt_result.t
 (** [read_body_chunks] supports reading request body when
     [Transfer-Encoding: chunked] is present in the request headers. *)
 

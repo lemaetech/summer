@@ -24,7 +24,7 @@ let () =
               ~on_chunk:(fun ~chunk ~len _exts ->
                 buf := Cstruct.append !buf (Cstruct.of_bigarray ~len chunk) ;
                 Lwt.return () )
-            >|= fun (_, _) -> Cstruct.to_bigarray !buf)
+            >|= fun (_req : Summer.Request.t) -> Cstruct.to_bigarray !buf)
       | `None -> Lwt_result.return (Lwt_bytes.create 0) )
       >>= function
       | Ok buf ->
