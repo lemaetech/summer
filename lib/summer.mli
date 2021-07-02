@@ -8,6 +8,15 @@
  * %%NAME%% %%VERSION%%
  *-------------------------------------------------------------------------*)
 
+(** [Summer] is a HTTP/1.1 server. *)
+
+(** Request header - (name * value) *)
+type header = string * string
+
+(** [chunk_extension] is an optional component of a chunk. It is defined at
+    https://datatracker.ietf.org/doc/html/rfc7230#section-4.1.1 *)
+type chunk_extension = {name: string; value: string option}
+
 module Request : sig
   type t
 
@@ -25,30 +34,40 @@ module Request : sig
   val meth : t -> meth
   val request_target : t -> string
   val http_version : t -> int * int
-  val headers : t -> (string * string) list
+  val headers : t -> header list
+  val body_type : t -> [`Content | `Chunked | `None]
   val client_addr : t -> Lwt_unix.sockaddr
   val pp : Format.formatter -> t -> unit
   val show : t -> string
 end
 
-module Context : sig
-  type t
-
-  val request : t -> Request.t
-  val connection : t -> Lwt_unix.file_descr
-end
-
-type bigstring =
-  (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
+type bigstring = Lwt_bytes.t
 
 val respond_with_bigstring :
-     Context.t
+     conn:Lwt_unix.file_descr
   -> status_code:int
   -> reason_phrase:string
   -> content_type:string
   -> bigstring
   -> unit Lwt.t
 
-type request_handler = Context.t -> unit Lwt.t
+(** {2 Request handling} *)
+
+type request_handler = conn:Lwt_unix.file_descr -> Request.t -> unit Lwt.t
+
+val read_body_chunks :
+     conn:Lwt_unix.file_descr
+  -> Request.t
+  -> on_chunk:(chunk:bigstring -> len:int -> chunk_extension list -> unit Lwt.t)
+  -> (Request.t, string) Lwt_result.t
+(** [read_body_chunks] supports reading request body when
+    [Transfer-Encoding: chunked] is present in the request headers. *)
+
+val read_body_content :
+  conn:Lwt_unix.file_descr -> Request.t -> (bigstring, string) Lwt_result.t
+(** [read_body_content] reads and returns request body content as bigstring. *)
+
+(** {2 HTTP server} *)
 
 val start : port:int -> request_handler -> 'a
+(** [start port request_handler] Starts HTTP/1.1 server at [port]. *)

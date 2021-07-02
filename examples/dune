@@ -1,3 +1,9 @@
 (executable
- (name echo)
+ (name echo_server)
+ (modules echo_server)
  (libraries summer lwt))
+
+(executable
+ (name chunked_server)
+ (modules chunked_server)
+ (libraries summer cstruct lwt))
