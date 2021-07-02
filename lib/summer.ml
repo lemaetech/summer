@@ -75,10 +75,7 @@ module Option = struct
   include Option
 
   let ( >>= ) b f = Option.bind b f [@@warning "-32"]
-  let ( >>| ) b f = Option.map f b
 end
-
-exception Invalid_content_length of string
 
 module Request = struct
   type t =
@@ -109,20 +106,16 @@ module Request = struct
     let chunk =
       Option.(
         List.assoc_opt "Transfer-Encoding" t.headers
-        >>| fun encoding ->
+        >>= fun encoding ->
         String.split_on_char ',' encoding
         |> List.map (fun tok -> String.trim tok)
         |> fun encodings ->
-        if List.mem "chunked" encodings then `Chunked else `None) in
+        if List.mem "chunked" encodings then Some `Chunked else None) in
     match chunk with
     | Some `Chunked -> `Chunked
-    | Some `None | None -> (
+    | None -> (
         List.assoc_opt "Content-Length" t.headers
-        |> function
-        | Some len -> (
-          try `Content (int_of_string len)
-          with _ -> raise (Invalid_content_length len) )
-        | None -> `None )
+        |> function Some _ -> `Content | None -> `None )
 
   let client_addr t = t.client_addr
 
@@ -280,7 +273,20 @@ let read_body_chunks ~conn req ~on_chunk =
   let p = chunked_body (Request.headers req) ~on_chunk in
   Parser.parse input p
 
-let read_body_content ~conn:_ = Lwt.return (Lwt_bytes.create 0)
+let read_body_content ~conn req =
+  List.assoc_opt "Content-Length" (Request.headers req)
+  |> function
+  | Some len -> (
+      Lwt.(
+        try
+          let len = int_of_string len in
+          let buf = Lwt_bytes.create len in
+          Lwt_bytes.read conn buf 0 len >>= fun _ -> return (Ok buf)
+        with _ ->
+          Format.sprintf "[read_body_content] Invalid content-length: %s" len
+          |> Lwt_result.fail) )
+  | None ->
+      Lwt_result.fail "[read_body_content] Content-Length header not found"
 
 type request_handler = conn:Lwt_unix.file_descr -> Request.t -> unit Lwt.t
 type bigstring = Lwt_bytes.t

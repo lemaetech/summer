@@ -7,6 +7,7 @@
  *
  * %%NAME%% %%VERSION%%
  *-------------------------------------------------------------------------*)
+open Lwt.Infix
 
 let () =
   let port = ref 3000 in
@@ -14,22 +15,22 @@ let () =
     [("-p", Arg.Set_int port, " Listening port number (3000 by default)")]
     ignore "An echo HTTP server using summer!" ;
   Summer.start ~port:!port (fun ~conn req ->
-      match Summer.Request.body_type req with
-      | `Content _content_length -> Lwt.return ()
-      | `Chunked -> (
+      ( match Summer.Request.body_type req with
+      | `Content -> Summer.read_body_content ~conn req
+      | `Chunked ->
           let buf = ref (Cstruct.create 0) in
-          Lwt.(
+          Lwt_result.(
             Summer.read_body_chunks req ~conn
               ~on_chunk:(fun ~chunk ~len _exts ->
                 buf := Cstruct.append !buf (Cstruct.of_bigarray ~len chunk) ;
                 Lwt.return () )
-            >>= function
-            | Ok _ ->
-                Summer.respond_with_bigstring ~conn ~status_code:200
-                  ~reason_phrase:"OK" ~content_type:"text/plain"
-                  (Cstruct.to_bigarray !buf)
-            | Error e ->
-                Summer.respond_with_bigstring ~conn ~status_code:500
-                  ~reason_phrase:"Internal Server Error"
-                  ~content_type:"text/plain" (Lwt_bytes.of_string e)) )
-      | `None -> Lwt.return () )
+            >|= fun (_, _) -> Cstruct.to_bigarray !buf)
+      | `None -> Lwt_result.return (Lwt_bytes.create 0) )
+      >>= function
+      | Ok buf ->
+          Summer.respond_with_bigstring ~conn ~status_code:200
+            ~reason_phrase:"OK" ~content_type:"text/plain" buf
+      | Error e ->
+          Summer.respond_with_bigstring ~conn ~status_code:500
+            ~reason_phrase:"Internal Server Error" ~content_type:"text/plain"
+            (Lwt_bytes.of_string e) )

@@ -41,7 +41,7 @@ module Request : sig
   val request_target : t -> string
   val http_version : t -> int * int
   val headers : t -> header list
-  val body_type : t -> [`Content of content_length | `Chunked | `None]
+  val body_type : t -> [`Content | `Chunked | `None]
   val client_addr : t -> Lwt_unix.sockaddr
   val pp : Format.formatter -> t -> unit
   val show : t -> string
@@ -69,7 +69,8 @@ val read_body_chunks :
 (** [read_body_chunks] supports reading request body when
     [Transfer-Encoding: chunked] is present in the request headers. *)
 
-val read_body_content : conn:Lwt_unix.file_descr -> bigstring Lwt.t
+val read_body_content :
+  conn:Lwt_unix.file_descr -> Request.t -> (bigstring, string) Lwt_result.t
 (** [read_body_content] reads and returns request body content as bigstring. *)
 
 (** {2 HTTP server} *)
