@@ -29,44 +29,48 @@ let _debug k =
 type chunk_extension = {name: string; value: string option}
 type header = string * string (* (name,value) *)
 
-module Parser = Reparse_lwt_unix.Fd
-open Parser
+(* module Parser = Reparse_lwt_unix.Fd *)
+(* open Parser *)
 
-let pair a b = (a, b)
+module Make_common (P : Reparse.PARSER) = struct
+  open P
 
-let _peek_dbg n =
-  let+ s = peek_string n in
-  _debug (fun k -> k "peek: %s\n%!" s)
+  let pair a b = (a, b)
 
-(*-- https://datatracker.ietf.org/doc/html/rfc7230#appendix-B --*)
-let tchar =
-  char_if (function
-    | '!' | '#' | '$' | '%' | '&' | '\'' | '*' | '+' | '-' | '.' | '^' | '_'
-     |'`' | '|' | '~' ->
-        true
-    | _ -> false )
-  <|> digit
-  <|> alpha
+  let _peek_dbg n =
+    let+ s = peek_string n in
+    _debug (fun k -> k "peek: %s\n%!" s)
 
-let token = take ~at_least:1 tchar >>= string_of_chars
-let ows = skip (space <|> htab) *> unit
+  (*-- https://datatracker.ietf.org/doc/html/rfc7230#appendix-B --*)
+  let tchar =
+    char_if (function
+      | '!' | '#' | '$' | '%' | '&' | '\'' | '*' | '+' | '-' | '.' | '^' | '_'
+       |'`' | '|' | '~' ->
+          true
+      | _ -> false )
+    <|> digit
+    <|> alpha
 
-(*-- https://datatracker.ietf.org/doc/html/rfc7230#section-3.2 --*)
-let header_fields =
-  let header_field =
-    let* field_name = token <* char ':' <* ows in
-    let+ field_value =
-      let field_content =
-        let c2 =
-          optional
-            (let* c1 = skip ~at_least:1 (space <|> htab) *> vchar in
-             string_of_chars [' '; c1])
-          >>| function Some s -> s | None -> "" in
-        (vchar, c2) <$$> fun c1 c2 -> Format.sprintf "%c%s" c1 c2 in
-      take field_content >>| String.concat "" <* crlf <* trim_input_buffer
-    in
-    (field_name, field_value) in
-  take header_field
+  let token = take ~at_least:1 tchar >>= string_of_chars
+  let ows = skip (space <|> htab) *> unit
+
+  (*-- https://datatracker.ietf.org/doc/html/rfc7230#section-3.2 --*)
+  let header_fields =
+    let header_field =
+      let* field_name = token <* char ':' <* ows in
+      let+ field_value =
+        let field_content =
+          let c2 =
+            optional
+              (let* c1 = skip ~at_least:1 (space <|> htab) *> vchar in
+               string_of_chars [' '; c1])
+            >>| function Some s -> s | None -> "" in
+          (vchar, c2) <$$> fun c1 c2 -> Format.sprintf "%c%s" c1 c2 in
+        take field_content >>| String.concat "" <* crlf <* trim_input_buffer
+      in
+      (field_name, field_value) in
+    take header_field
+end
 
 module Option = struct
   include Option
@@ -79,6 +83,8 @@ module C = struct
   let trailer = "Trailer"
   let content_length = "Content-Length"
   let chunked = "chunked"
+  let accept_encodings = "Accept-Encoding"
+  let content_encodings = "Content-Encoding" [@@warning "-32"]
 end
 
 module Request = struct
@@ -142,6 +148,9 @@ module Request = struct
     let fmt = Format.formatter_of_buffer buf in
     pp fmt t ; Format.fprintf fmt "%!" ; Buffer.contents buf
 
+  open Reparse_lwt_unix.Fd
+  open Make_common (Reparse_lwt_unix.Fd)
+
   (*-- request-line = method SP request-target SP HTTP-version CRLF -- *)
   let request_line =
     let* meth = token <* space in
@@ -166,7 +175,7 @@ module Request = struct
   let rec t (client_addr : Lwt_unix.sockaddr) fd =
     let input = Reparse_lwt_unix.Fd.create_input fd in
     Lwt_result.(
-      Parser.(parse input request_meta)
+      parse input request_meta
       >|= fun (request_line, headers) ->
       let meth, request_target, http_version = request_line in
       let meth = parse_meth meth in
@@ -186,6 +195,34 @@ module Request = struct
     | header -> `OTHER header
 end
 
+type accept_encoding = {name: string; qvalue: float option}
+
+let accept_encodings req =
+  let open Reparse.String in
+  let open Make_common (Reparse.String) in
+  let weight =
+    let qvalue1 =
+      char '0'
+      >>= fun _c ->
+      optional (char '.' *> take ~up_to:3 digit)
+      >>= (function Some l -> string_of_chars l | None -> return "0")
+      >>| float_of_string in
+    let qvalue2 =
+      char '1' *> optional (char '.' *> take ~up_to:3 (char '0'))
+      >>= (function Some l -> string_of_chars l | None -> return "1")
+      >>| float_of_string in
+    let qvalue = qvalue1 <|> qvalue2 in
+    ows *> char ';' *> ows *> string_ci "q=" *> qvalue in
+  let p =
+    let content_coding = token in
+    let codings = content_coding <|> string_ci "identity" <|> string_cs "*" in
+    take ((codings, optional weight) <$$> fun name qvalue -> {name; qvalue})
+  in
+  let headers = Request.headers req in
+  match List.assoc_opt C.accept_encodings headers with
+  | Some enc -> Reparse.(String.parse (String.create_input_from_string enc) p)
+  | None -> Ok []
+
 (**-- Processing body --*)
 
 let is_chunked req =
@@ -198,6 +235,8 @@ let is_chunked req =
   | None -> false
 
 let read_body_chunks ~conn (Request.{headers; _} as req) ~on_chunk =
+  let open Reparse_lwt_unix.Fd in
+  let open Make_common (Reparse_lwt_unix.Fd) in
   let quoted_pair = char '\\' *> (whitespace <|> vchar) in
   (*-- qdtext = HTAB / SP /%x21 / %x23-5B / %x5D-7E / obs-text -- *)
   let qdtext =
@@ -283,7 +322,7 @@ let read_body_chunks ~conn (Request.{headers; _} as req) ~on_chunk =
     ({req with headers} : Request.t) in
   if is_chunked req then
     let input = Reparse_lwt_unix.Fd.create_input conn in
-    chunked_body headers ~on_chunk |> Parser.parse input
+    chunked_body headers ~on_chunk |> parse input
   else Lwt_result.fail "[read_body_chunks] Not a `Chunked request body"
 
 let read_body_content ~conn req =

@@ -53,6 +53,9 @@ val respond_with_bigstring :
 (** {2 Request handling} *)
 
 type request_handler = conn:Lwt_unix.file_descr -> Request.t -> unit Lwt.t
+type accept_encoding = {name: string; qvalue: float option}
+
+val accept_encodings : Request.t -> (accept_encoding list, string) result
 
 val read_body_chunks :
      conn:Lwt_unix.file_descr
