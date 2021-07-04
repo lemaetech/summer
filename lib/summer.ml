@@ -78,6 +78,7 @@ module C = struct
   let transfer_encoding = "Transfer-Encoding"
   let trailer = "Trailer"
   let content_length = "Content-Length"
+  let chunked = "chunked"
 end
 
 module Request = struct
@@ -104,22 +105,6 @@ module Request = struct
   let request_target t = t.request_target
   let http_version t = t.http_version
   let headers t = t.headers
-
-  let body_type t =
-    let chunk =
-      Option.(
-        List.assoc_opt C.transfer_encoding t.headers
-        >>= fun encoding ->
-        String.split_on_char ',' encoding
-        |> List.map (fun tok -> String.trim tok)
-        |> fun encodings ->
-        if List.mem "chunked" encodings then Some `Chunked else None) in
-    match chunk with
-    | Some `Chunked -> `Chunked
-    | None -> (
-        List.assoc_opt "Content-Length" t.headers
-        |> function Some _ -> `Content | None -> `None )
-
   let client_addr t = t.client_addr
 
   let rec pp fmt t =
@@ -201,6 +186,17 @@ module Request = struct
     | header -> `OTHER header
 end
 
+(**-- Processing body --*)
+
+let is_chunked req =
+  List.assoc_opt C.transfer_encoding (Request.headers req)
+  |> function
+  | Some encoding ->
+      String.split_on_char ',' encoding
+      |> List.map String.trim
+      |> fun encodings -> if List.mem C.chunked encodings then true else false
+  | None -> false
+
 let read_body_chunks ~conn (Request.{headers; _} as req) ~on_chunk =
   let quoted_pair = char '\\' *> (whitespace <|> vchar) in
   (*-- qdtext = HTAB / SP /%x21 / %x23-5B / %x5D-7E / obs-text -- *)
@@ -271,7 +267,7 @@ let read_body_chunks ~conn (Request.{headers; _} as req) ~on_chunk =
         List.assoc C.transfer_encoding headers
         |> String.split_on_char ','
         |> List.map String.trim
-        |> List.filter (fun e -> not (String.equal e "chunked"))
+        |> List.filter (fun e -> not (String.equal e C.chunked))
         |> String.concat "," in
       let headers = List.remove_assoc C.transfer_encoding headers in
       if String.length te > 0 then (C.transfer_encoding, te) :: headers
@@ -285,8 +281,10 @@ let read_body_chunks ~conn (Request.{headers; _} as req) ~on_chunk =
       |> List.append trailer_headers
       |> List.cons (C.content_length, string_of_int !content_length) in
     ({req with headers} : Request.t) in
-  let input = Reparse_lwt_unix.Fd.create_input conn in
-  chunked_body headers ~on_chunk |> Parser.parse input
+  if is_chunked req then
+    let input = Reparse_lwt_unix.Fd.create_input conn in
+    chunked_body headers ~on_chunk |> Parser.parse input
+  else Lwt_result.fail "[read_body_chunks] Not a `Chunked request body"
 
 let read_body_content ~conn req =
   List.assoc_opt "Content-Length" (Request.headers req)
@@ -298,10 +296,11 @@ let read_body_content ~conn req =
           let buf = Lwt_bytes.create len in
           Lwt_bytes.read conn buf 0 len >>= fun _ -> return (Ok buf)
         with _ ->
-          Format.sprintf "[read_body_content] Invalid content-length: %s" len
+          Format.sprintf
+            "[read_body_content] Invalid 'Content-Length' header value: %s" len
           |> Lwt_result.fail) )
   | None ->
-      Lwt_result.fail "[read_body_content] Content-Length header not found"
+      Lwt_result.fail "[read_body_content] 'Content-Length' header not found"
 
 type request_handler = conn:Lwt_unix.file_descr -> Request.t -> unit Lwt.t
 type bigstring = Lwt_bytes.t
@@ -331,24 +330,33 @@ let respond_with_bigstring ~conn ~(status_code : int) ~(reason_phrase : string)
   IO_vector.append_bigarray iov body 0 content_length ;
   Lwt_unix.writev conn iov >|= fun _ -> ()
 
-let rec handle_requests request_handler client_addr fd =
+let write_status conn status_code reason_phrase =
+  let iov = IO_vector.create () in
+  let status_line =
+    Format.sprintf "HTTP/1.1 %d %s\r\n" status_code reason_phrase
+    |> Lwt_bytes.of_string in
+  IO_vector.append_bigarray iov status_line 0 (Lwt_bytes.length status_line) ;
+  Lwt_unix.writev conn iov >|= fun _ -> ()
+
+let rec handle_requests request_handler client_addr conn =
   _debug (fun k -> k "Waiting for new request ...\n%!") ;
-  Request.t client_addr fd
+  Request.t client_addr conn
   >>= function
   | Ok req -> (
       _debug (fun k -> k "%s\n%!" (Request.show req)) ;
-      request_handler ~conn:fd req
+      Lwt.catch
+        (fun () -> request_handler ~conn req)
+        (fun exn ->
+          _debug (fun k -> k "Unhandled exception: %s" (Printexc.to_string exn)) ;
+          write_status conn 500 "Internal Server Error" )
       >>= fun () ->
       List.assoc_opt "Connection" (Request.headers req)
       |> function
-      | Some "close" -> Lwt_unix.close fd
-      | Some _ | None -> handle_requests request_handler client_addr fd )
+      | Some "close" -> Lwt_unix.close conn
+      | Some _ | None -> handle_requests request_handler client_addr conn )
   | Error e ->
       _debug (fun k -> k "Error: %s" e) ;
-      let response_txt = "400 Bad Request" in
-      String.length response_txt
-      |> Lwt_unix.write_string fd response_txt 0
-      >|= fun _ -> ()
+      write_status conn 400 "Bad Request"
 
 let start ~port request_handler =
   let listen_address = Unix.(ADDR_INET (inet_addr_loopback, port)) in

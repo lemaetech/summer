@@ -35,7 +35,6 @@ module Request : sig
   val request_target : t -> string
   val http_version : t -> int * int
   val headers : t -> header list
-  val body_type : t -> [`Content | `Chunked | `None]
   val client_addr : t -> Lwt_unix.sockaddr
   val pp : Format.formatter -> t -> unit
   val show : t -> string
