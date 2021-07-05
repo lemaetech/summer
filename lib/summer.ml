@@ -107,6 +107,8 @@ module Request = struct
     | `TRACE
     | `OTHER of string ]
 
+  type accept_encoding = {name: string; qvalue: float option}
+
   let meth t = t.meth
   let request_target t = t.request_target
   let http_version t = t.http_version
@@ -172,6 +174,31 @@ module Request = struct
 
   let request_meta = (request_line, header_fields) <$$> pair <* crlf
 
+  let accept_encodings t =
+    let open Reparse.String in
+    let open Make_common (Reparse.String) in
+    let weight =
+      let qvalue1 =
+        char '0'
+        >>= fun _c ->
+        optional (char '.' *> take ~up_to:3 digit)
+        >>= (function Some l -> string_of_chars l | None -> return "0")
+        >>| float_of_string in
+      let qvalue2 =
+        char '1' *> optional (char '.' *> take ~up_to:3 (char '0'))
+        >>= (function Some l -> string_of_chars l | None -> return "1")
+        >>| float_of_string in
+      let qvalue = qvalue1 <|> qvalue2 in
+      ows *> char ';' *> ows *> string_ci "q=" *> qvalue in
+    let p =
+      let content_coding = token in
+      let codings = content_coding <|> string_ci "identity" <|> string_cs "*" in
+      take ((codings, optional weight) <$$> fun name qvalue -> {name; qvalue})
+    in
+    match List.assoc_opt C.accept_encodings t.headers with
+    | Some enc -> Reparse.(String.parse (String.create_input_from_string enc) p)
+    | None -> Ok []
+
   let rec t (client_addr : Lwt_unix.sockaddr) fd =
     let input = Reparse_lwt_unix.Fd.create_input fd in
     Lwt_result.(
@@ -194,34 +221,6 @@ module Request = struct
     | "TRACE" -> `TRACE
     | header -> `OTHER header
 end
-
-type accept_encoding = {name: string; qvalue: float option}
-
-let accept_encodings req =
-  let open Reparse.String in
-  let open Make_common (Reparse.String) in
-  let weight =
-    let qvalue1 =
-      char '0'
-      >>= fun _c ->
-      optional (char '.' *> take ~up_to:3 digit)
-      >>= (function Some l -> string_of_chars l | None -> return "0")
-      >>| float_of_string in
-    let qvalue2 =
-      char '1' *> optional (char '.' *> take ~up_to:3 (char '0'))
-      >>= (function Some l -> string_of_chars l | None -> return "1")
-      >>| float_of_string in
-    let qvalue = qvalue1 <|> qvalue2 in
-    ows *> char ';' *> ows *> string_ci "q=" *> qvalue in
-  let p =
-    let content_coding = token in
-    let codings = content_coding <|> string_ci "identity" <|> string_cs "*" in
-    take ((codings, optional weight) <$$> fun name qvalue -> {name; qvalue})
-  in
-  let headers = Request.headers req in
-  match List.assoc_opt C.accept_encodings headers with
-  | Some enc -> Reparse.(String.parse (String.create_input_from_string enc) p)
-  | None -> Ok []
 
 (**-- Processing body --*)
 
