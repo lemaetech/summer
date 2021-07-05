@@ -87,6 +87,11 @@ module C = struct
   let content_encodings = "Content-Encoding" [@@warning "-32"]
 end
 
+type accept_encoding = {encoding: encoding; weight: float option}
+
+and encoding =
+  [`Compress | `Deflate | `Gzip | `Br | `Any | `None | `Other of string]
+
 module Request = struct
   type t =
     { meth: meth
@@ -106,11 +111,6 @@ module Request = struct
     | `OPTIONS
     | `TRACE
     | `OTHER of string ]
-
-  type accept_encoding = {encoding: encoding; weight: float option}
-
-  and encoding =
-    [`Compress | `Deflate | `Gzip | `Br | `Any | `None | `Other of string]
 
   let meth t = t.meth
   let request_target t = t.request_target
@@ -152,23 +152,6 @@ module Request = struct
     let buf = Buffer.create 0 in
     let fmt = Format.formatter_of_buffer buf in
     pp fmt t ; Format.fprintf fmt "%!" ; Buffer.contents buf
-
-  let rec pp_accept_encoding fmt t =
-    let fields =
-      [ Fmt.field "coding" (fun p -> p.encoding) pp_coding
-      ; Fmt.field "weight" (fun p -> p.weight) Fmt.(option float) ] in
-    Fmt.record fields fmt t
-
-  and pp_coding fmt coding =
-    ( match coding with
-    | `Compress -> "compress"
-    | `Deflate -> "deflate"
-    | `Gzip -> "gzip"
-    | `Br -> "br"
-    | `Any -> "*"
-    | `None -> ""
-    | `Other enc -> Format.sprintf "Other (%s)" enc )
-    |> Format.fprintf fmt "%s"
 
   let accept_encodings t =
     let open Reparse.String in
@@ -254,6 +237,23 @@ module Request = struct
     | "TRACE" -> `TRACE
     | header -> `OTHER header
 end
+
+let rec pp_accept_encoding fmt t =
+  let fields =
+    [ Fmt.field "coding" (fun p -> p.encoding) pp_coding
+    ; Fmt.field "weight" (fun p -> p.weight) Fmt.(option float) ] in
+  Fmt.record fields fmt t
+
+and pp_coding fmt coding =
+  ( match coding with
+  | `Compress -> "compress"
+  | `Deflate -> "deflate"
+  | `Gzip -> "gzip"
+  | `Br -> "br"
+  | `Any -> "*"
+  | `None -> ""
+  | `Other enc -> Format.sprintf "Other (%s)" enc )
+  |> Format.fprintf fmt "%s"
 
 (**-- Processing body --*)
 
@@ -392,6 +392,47 @@ let deflate_compress str =
     Buffer.add_string r str in
   De.Higher.compress ~w ~q ~refill ~flush i o ;
   Buffer.contents r
+
+let time () = Int32.of_float (Unix.gettimeofday ())
+
+let gzip_decompress (str : Bigstringaf.t) =
+  let i = De.bigstring_create De.io_buffer_size in
+  let o = De.bigstring_create De.io_buffer_size in
+  let r = Buffer.create 0x1000 in
+  let p = ref 0 in
+  let refill buf =
+    let len = min (Bigstringaf.length str - !p) De.io_buffer_size in
+    Bigstringaf.blit str ~src_off:!p buf ~dst_off:0 ~len ;
+    p := !p + len ;
+    len in
+  let flush buf len =
+    let str = Bigstringaf.substring buf ~off:0 ~len in
+    Buffer.add_string r str in
+  match Gz.Higher.uncompress ~refill ~flush i o with
+  | Ok m -> Ok (m, Buffer.contents r)
+  | Error (`Msg err) -> Error err
+
+let gzip_compress ?(level = 4) (str : Bigstringaf.t) =
+  let i = De.bigstring_create De.io_buffer_size in
+  let o = De.bigstring_create De.io_buffer_size in
+  let w = De.Lz77.make_window ~bits:15 in
+  let q = De.Queue.create 0x1000 in
+  let r = Buffer.create 0x1000 in
+  let p = ref 0 in
+  let cfg = Gz.Higher.configuration Gz.Unix time in
+  let refill buf =
+    let len = min (Bigstringaf.length str - !p) De.io_buffer_size in
+    Bigstringaf.blit str ~src_off:!p buf ~dst_off:0 ~len ;
+    p := !p + len ;
+    len in
+  let flush buf len =
+    let str = Bigstringaf.substring buf ~off:0 ~len in
+    Buffer.add_string r str in
+  Gz.Higher.compress ~w ~q ~level ~refill ~flush () cfg i o ;
+  Buffer.contents r
+
+let supported_encodings : accept_encoding list =
+  [{encoding= `Gzip; weight= Some 1.0}; {encoding= `Deflate; weight= Some 0.0}]
 
 let read_body_content ~conn req =
   List.assoc_opt "Content-Length" (Request.headers req)

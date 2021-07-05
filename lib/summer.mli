@@ -17,6 +17,28 @@ type header = string * string
     https://datatracker.ietf.org/doc/html/rfc7230#section-4.1.1 *)
 type chunk_extension = {name: string; value: string option}
 
+(** Represents [Accept-Encodings] header value.
+    https://datatracker.ietf.org/doc/html/rfc7231#section-5.3.4 *)
+type accept_encoding = {encoding: encoding; weight: float option}
+
+and encoding =
+  [ `Compress
+    (** Compress - https://datatracker.ietf.org/doc/html/rfc7230#section-4.2.1 *)
+  | `Deflate
+    (** Deflate - https://datatracker.ietf.org/doc/html/rfc7230#section-4.2.2 *)
+  | `Gzip
+    (** Gzip - https://datatracker.ietf.org/doc/html/rfc7230#section-4.2.3 *)
+  | `Br  (** Br (Brotli) - https://datatracker.ietf.org/doc/html/rfc7932 *)
+  | `Any
+    (** Represented by '*': The asterisk "*" symbol in an Accept-Encoding field
+        matches any available content-coding not explicitly listed in the header
+        field. *)
+  | `None
+    (** Represented by empty ("Accept-Encoding: ") encoding header value. *)
+  | `Other of string
+    (** Any other encoding - possibly a custom one - not specified by the HTTP
+        RFC 7230 or 7231 or 7932. *) ]
+
 module Request : sig
   type t
 
@@ -31,28 +53,6 @@ module Request : sig
     | `TRACE
     | `OTHER of string ]
 
-  (** Represents [Accept-Encodings] header value.
-      https://datatracker.ietf.org/doc/html/rfc7231#section-5.3.4 *)
-  type accept_encoding = {encoding: encoding; weight: float option}
-
-  and encoding =
-    [ `Compress
-      (** Compress - https://datatracker.ietf.org/doc/html/rfc7230#section-4.2.1 *)
-    | `Deflate
-      (** Deflate - https://datatracker.ietf.org/doc/html/rfc7230#section-4.2.2 *)
-    | `Gzip
-      (** Gzip - https://datatracker.ietf.org/doc/html/rfc7230#section-4.2.3 *)
-    | `Br  (** Br (Brotli) - https://datatracker.ietf.org/doc/html/rfc7932 *)
-    | `Any
-      (** Represented by '*': The asterisk "*" symbol in an Accept-Encoding
-          field matches any available content-coding not explicitly listed in
-          the header field. *)
-    | `None
-      (** Represented by empty ("Accept-Encoding: ") encoding header value. *)
-    | `Other of string
-      (** Any other encoding - possibly a custom one - not specified by the HTTP
-          RFC 7230 or 7231 or 7932. *) ]
-
   val meth : t -> meth
   val request_target : t -> string
   val http_version : t -> int * int
@@ -64,8 +64,6 @@ module Request : sig
 
   val pp : Format.formatter -> t -> unit
   val show : t -> string
-  val pp_coding : Format.formatter -> encoding -> unit
-  val pp_accept_encoding : Format.formatter -> accept_encoding -> unit
 end
 
 type bigstring = Lwt_bytes.t
@@ -90,8 +88,19 @@ val read_body_chunks :
 (** [read_body_chunks] supports reading request body when
     [Transfer-Encoding: chunked] is present in the request headers. *)
 
+(** {2 [deflat] content encoding, decoding *)
+
 val deflate_decompress : bigstring -> (string, string) result
 val deflate_compress : bigstring -> string
+
+(** {2 [gzip] content encoding, decoding *)
+
+val gzip_decompress : bigstring -> (Gz.Higher.metadata * string, string) result
+val gzip_compress : ?level:int -> bigstring -> string
+
+val supported_encodings : accept_encoding list
+(** [supported_encodings] returns a list of encoding support by [Summer]
+    HTTP/1.1 web server *)
 
 val read_body_content :
   conn:Lwt_unix.file_descr -> Request.t -> (bigstring, string) Lwt_result.t
@@ -101,3 +110,8 @@ val read_body_content :
 
 val start : port:int -> request_handler -> 'a
 (** [start port request_handler] Starts HTTP/1.1 server at [port]. *)
+
+(** {2 Pretty printers} *)
+
+val pp_coding : Format.formatter -> encoding -> unit
+val pp_accept_encoding : Format.formatter -> accept_encoding -> unit
