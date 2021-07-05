@@ -90,6 +90,8 @@ val read_body_chunks :
 (** [read_body_chunks] supports reading request body when
     [Transfer-Encoding: chunked] is present in the request headers. *)
 
+val deflate_decompress : bigstring -> (string, string) result
+
 val read_body_content :
   conn:Lwt_unix.file_descr -> Request.t -> (bigstring, string) Lwt_result.t
 (** [read_body_content] reads and returns request body content as bigstring. *)

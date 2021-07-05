@@ -1,4 +1,13 @@
 (library
  (name summer)
  (public_name summer)
- (libraries cstruct reparse reparse-lwt-unix lwt lwt.unix fmt))
+ (libraries
+  cstruct
+  bigstringaf
+  decompress.de
+  decompress.gz
+  reparse
+  reparse-lwt-unix
+  lwt
+  lwt.unix
+  fmt))

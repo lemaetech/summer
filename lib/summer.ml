@@ -357,6 +357,24 @@ let read_body_chunks ~conn (Request.{headers; _} as req) ~on_chunk =
     chunked_body headers ~on_chunk |> parse input
   else Lwt_result.fail "[read_body_chunks] Not a `Chunked request body"
 
+let deflate_decompress str =
+  let i = De.bigstring_create De.io_buffer_size in
+  let o = De.bigstring_create De.io_buffer_size in
+  let w = De.make_window ~bits:15 in
+  let r = Buffer.create 0x1000 in
+  let p = ref 0 in
+  let refill buf =
+    let len = min (Bigstringaf.length str - !p) De.io_buffer_size in
+    Bigstringaf.blit str ~src_off:!p buf ~dst_off:0 ~len ;
+    p := !p + len ;
+    len in
+  let flush buf len =
+    let str = Bigstringaf.substring buf ~off:0 ~len in
+    Buffer.add_string r str in
+  match De.Higher.uncompress ~w ~refill ~flush i o with
+  | Ok () -> Ok (Buffer.contents r)
+  | Error (`Msg s) -> Error s
+
 let read_body_content ~conn req =
   List.assoc_opt "Content-Length" (Request.headers req)
   |> function
