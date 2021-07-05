@@ -191,7 +191,7 @@ module Request = struct
     | Some enc ->
         if String.(trim enc |> length) = 0 then
           Ok [{coding= `None; weight= None}]
-        else Reparse.(String.parse (String.create_input_from_string enc) p)
+        else Reparse.String.(parse (create_input_from_string enc) p)
     | None -> Ok []
 
   (*-- request-line = method SP request-target SP HTTP-version CRLF -- *)
