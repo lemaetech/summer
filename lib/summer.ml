@@ -107,7 +107,7 @@ module Request = struct
     | `TRACE
     | `OTHER of string ]
 
-  type accept_encoding = {name: string; qvalue: float option}
+  type accept_encoding = {coding: string; weight: float option}
 
   let meth t = t.meth
   let request_target t = t.request_target
@@ -193,7 +193,8 @@ module Request = struct
     let p =
       let content_coding = token in
       let codings = content_coding <|> string_ci "identity" <|> string_cs "*" in
-      take ((codings, optional weight) <$$> fun name qvalue -> {name; qvalue})
+      take
+        ((codings, optional weight) <$$> fun coding weight -> {coding; weight})
     in
     match List.assoc_opt C.accept_encodings t.headers with
     | Some enc -> Reparse.(String.parse (String.create_input_from_string enc) p)

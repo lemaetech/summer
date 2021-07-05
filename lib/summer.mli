@@ -31,7 +31,9 @@ module Request : sig
     | `TRACE
     | `OTHER of string ]
 
-  type accept_encoding = {name: string; qvalue: float option}
+  (** Represents [Accept-Encodings] header value.
+      https://datatracker.ietf.org/doc/html/rfc7231#section-5.3.4 *)
+  type accept_encoding = {coding: string; weight: float option}
 
   val meth : t -> meth
   val request_target : t -> string
