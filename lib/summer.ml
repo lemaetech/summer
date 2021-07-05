@@ -161,11 +161,15 @@ module Request = struct
     let weight =
       let qvalue1 =
         char '0' *> optional (char '.' *> take ~up_to:3 digit)
-        >>= (function Some l -> string_of_chars l | None -> return "0")
+        >>= (function
+              | Some l -> string_of_chars ('0' :: '.' :: l) | None -> return "0"
+              )
         >>| float_of_string in
       let qvalue2 =
         char '1' *> optional (char '.' *> take ~up_to:3 (char '0'))
-        >>= (function Some l -> string_of_chars l | None -> return "1")
+        >>= (function
+              | Some l -> string_of_chars ('1' :: '.' :: l) | None -> return "1"
+              )
         >>| float_of_string in
       let qvalue = qvalue1 <|> qvalue2 in
       ows *> char ';' *> ows *> string_ci "q=" *> qvalue in
