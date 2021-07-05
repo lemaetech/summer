@@ -155,27 +155,6 @@ module Request = struct
   open Reparse_lwt_unix.Fd
   open Make_common (Reparse_lwt_unix.Fd)
 
-  (*-- request-line = method SP request-target SP HTTP-version CRLF -- *)
-  let request_line =
-    let* meth = token <* space in
-    let* request_target =
-      take_while ~while_:(is_not space) unsafe_any_char
-      >>= string_of_chars
-      <* space
-    in
-    let* http_version =
-      (*-- https://datatracker.ietf.org/doc/html/rfc7230#section-2.6 --*)
-      (string_cs "HTTP/" *> digit <* char '.', digit)
-      <$$> pair
-      <* crlf
-      >>= fun (major, minor) ->
-      if Char.equal major '1' && Char.equal minor '1' then return (1, 1)
-      else Format.sprintf "Invalid HTTP version: (%c,%c)" major minor |> fail
-    in
-    trim_input_buffer *> return (meth, request_target, http_version)
-
-  let request_meta = (request_line, header_fields) <$$> pair <* crlf
-
   let accept_encodings t =
     let open Reparse.String in
     let open Make_common (Reparse.String) in
@@ -214,6 +193,27 @@ module Request = struct
           Ok [{coding= `None; weight= None}]
         else Reparse.(String.parse (String.create_input_from_string enc) p)
     | None -> Ok []
+
+  (*-- request-line = method SP request-target SP HTTP-version CRLF -- *)
+  let request_line =
+    let* meth = token <* space in
+    let* request_target =
+      take_while ~while_:(is_not space) unsafe_any_char
+      >>= string_of_chars
+      <* space
+    in
+    let* http_version =
+      (*-- https://datatracker.ietf.org/doc/html/rfc7230#section-2.6 --*)
+      (string_cs "HTTP/" *> digit <* char '.', digit)
+      <$$> pair
+      <* crlf
+      >>= fun (major, minor) ->
+      if Char.equal major '1' && Char.equal minor '1' then return (1, 1)
+      else Format.sprintf "Invalid HTTP version: (%c,%c)" major minor |> fail
+    in
+    trim_input_buffer *> return (meth, request_target, http_version)
+
+  let request_meta = (request_line, header_fields) <$$> pair <* crlf
 
   let rec t (client_addr : Lwt_unix.sockaddr) fd =
     let input = Reparse_lwt_unix.Fd.create_input fd in
