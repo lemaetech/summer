@@ -107,9 +107,9 @@ module Request = struct
     | `TRACE
     | `OTHER of string ]
 
-  type accept_encoding = {coding: coding; weight: float option}
+  type accept_encoding = {coding: encoding; weight: float option}
 
-  and coding = [`Compress | `Deflate | `Gzip | `Br | `Any | `None]
+  and encoding = [`Compress | `Deflate | `Gzip | `Br | `Any | `None]
 
   let meth t = t.meth
   let request_target t = t.request_target

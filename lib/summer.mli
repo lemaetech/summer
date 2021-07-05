@@ -33,9 +33,21 @@ module Request : sig
 
   (** Represents [Accept-Encodings] header value.
       https://datatracker.ietf.org/doc/html/rfc7231#section-5.3.4 *)
-  type accept_encoding = {coding: coding; weight: float option}
+  type accept_encoding = {coding: encoding; weight: float option}
 
-  and coding = [`Compress | `Deflate | `Gzip | `Br | `Any | `None]
+  and encoding =
+    [ `Compress
+      (** Compress - https://datatracker.ietf.org/doc/html/rfc7230#section-4.2.1 *)
+    | `Deflate
+      (** Deflate - https://datatracker.ietf.org/doc/html/rfc7230#section-4.2.2 *)
+    | `Gzip
+      (** Gzip - https://datatracker.ietf.org/doc/html/rfc7230#section-4.2.3 *)
+    | `Br  (** Br (Brotli) - https://datatracker.ietf.org/doc/html/rfc7932 *)
+    | `Any
+      (** Represented by '*': The asterisk "*" symbol in an Accept-Encoding
+          field matches any available content-coding not explicitly listed in
+          the header field. *)
+    | `None  (** Represented by '' empty value.*) ]
 
   val meth : t -> meth
   val request_target : t -> string
@@ -44,11 +56,11 @@ module Request : sig
   val client_addr : t -> Lwt_unix.sockaddr
   val accept_encodings : t -> (accept_encoding list, string) result
 
-  (** {2 Pretty Printing}*)
+  (** {2 Pretty Printers} *)
 
   val pp : Format.formatter -> t -> unit
   val show : t -> string
-  val pp_coding : Format.formatter -> coding -> unit
+  val pp_coding : Format.formatter -> encoding -> unit
   val pp_accept_encoding : Format.formatter -> accept_encoding -> unit
 end
 
