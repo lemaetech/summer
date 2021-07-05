@@ -48,6 +48,8 @@ module Request : sig
 
   val pp : Format.formatter -> t -> unit
   val show : t -> string
+  val pp_coding : Format.formatter -> coding -> unit
+  val pp_accept_encoding : Format.formatter -> accept_encoding -> unit
 end
 
 type bigstring = Lwt_bytes.t

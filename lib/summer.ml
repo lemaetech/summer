@@ -152,8 +152,21 @@ module Request = struct
     let fmt = Format.formatter_of_buffer buf in
     pp fmt t ; Format.fprintf fmt "%!" ; Buffer.contents buf
 
-  open Reparse_lwt_unix.Fd
-  open Make_common (Reparse_lwt_unix.Fd)
+  let rec pp_accept_encoding fmt t =
+    let fields =
+      [ Fmt.field "coding" (fun p -> p.coding) pp_coding
+      ; Fmt.field "weight" (fun p -> p.weight) Fmt.(option float) ] in
+    Fmt.record fields fmt t
+
+  and pp_coding fmt coding =
+    ( match coding with
+    | `Compress -> "compress"
+    | `Deflate -> "deflate"
+    | `Gzip -> "gzip"
+    | `Br -> "br"
+    | `Any -> "*"
+    | `None -> "" )
+    |> Format.fprintf fmt "%s"
 
   let accept_encodings t =
     let open Reparse.String in
@@ -193,6 +206,9 @@ module Request = struct
           Ok [{coding= `None; weight= None}]
         else Reparse.String.(parse (create_input_from_string enc) p)
     | None -> Ok []
+
+  open Reparse_lwt_unix.Fd
+  open Make_common (Reparse_lwt_unix.Fd)
 
   (*-- request-line = method SP request-target SP HTTP-version CRLF -- *)
   let request_line =
