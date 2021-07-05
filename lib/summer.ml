@@ -375,6 +375,24 @@ let deflate_decompress str =
   | Ok () -> Ok (Buffer.contents r)
   | Error (`Msg s) -> Error s
 
+let deflate_compress str =
+  let i = De.bigstring_create De.io_buffer_size in
+  let o = De.bigstring_create De.io_buffer_size in
+  let w = De.Lz77.make_window ~bits:15 in
+  let q = De.Queue.create 0x1000 in
+  let r = Buffer.create 0x1000 in
+  let p = ref 0 in
+  let refill buf =
+    let len = min (Bigstringaf.length str - !p) De.io_buffer_size in
+    Bigstringaf.blit str ~src_off:!p buf ~dst_off:0 ~len ;
+    p := !p + len ;
+    len in
+  let flush buf len =
+    let str = Bigstringaf.substring buf ~off:0 ~len in
+    Buffer.add_string r str in
+  De.Higher.compress ~w ~q ~refill ~flush i o ;
+  Buffer.contents r
+
 let read_body_content ~conn req =
   List.assoc_opt "Content-Length" (Request.headers req)
   |> function
