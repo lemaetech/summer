@@ -160,9 +160,7 @@ module Request = struct
     let open Make_common (Reparse.String) in
     let weight =
       let qvalue1 =
-        char '0'
-        >>= fun _c ->
-        optional (char '.' *> take ~up_to:3 digit)
+        char '0' *> optional (char '.' *> take ~up_to:3 digit)
         >>= (function Some l -> string_of_chars l | None -> return "0")
         >>| float_of_string in
       let qvalue2 =
