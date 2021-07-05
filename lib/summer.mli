@@ -47,7 +47,7 @@ module Request : sig
       (** Represented by '*': The asterisk "*" symbol in an Accept-Encoding
           field matches any available content-coding not explicitly listed in
           the header field. *)
-    | `None  (** Represented by empty - ''- encoding value. *)
+    | `None  (** Represented by empty('') encoding value. *)
     | `Other of string
       (** Any other encoding - possibly a custom one - not specified by the HTTP
           RFC 7230 or 7231 or 7932. *) ]
