@@ -88,7 +88,7 @@ val read_body_chunks :
 (** [read_body_chunks] supports reading request body when
     [Transfer-Encoding: chunked] is present in the request headers. *)
 
-(** {2 [deflat] content encoding, decoding *)
+(** {2 [deflate] content encoding, decoding *)
 
 val deflate_decompress : bigstring -> (string, string) result
 val deflate_compress : bigstring -> string
