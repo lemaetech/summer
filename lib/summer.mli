@@ -90,13 +90,13 @@ val read_body_chunks :
 
 (** {2 [deflate] content encoding, decoding *)
 
-val deflate_decompress : bigstring -> (string, string) result
-val deflate_compress : bigstring -> string
+val deflate_decode : bigstring -> (string, string) result
+val deflate_encode : bigstring -> string
 
 (** {2 [gzip] content encoding, decoding *)
 
-val gzip_decompress : bigstring -> (Gz.Higher.metadata * string, string) result
-val gzip_compress : ?level:int -> bigstring -> string
+val gzip_decode : bigstring -> (Gz.Higher.metadata * string, string) result
+val gzip_encode : ?level:int -> bigstring -> string
 
 val supported_encodings : accept_encoding list
 (** [supported_encodings] returns a list of encoding support by [Summer]

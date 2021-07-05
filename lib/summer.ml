@@ -357,7 +357,7 @@ let read_body_chunks ~conn (Request.{headers; _} as req) ~on_chunk =
     chunked_body headers ~on_chunk |> parse input
   else Lwt_result.fail "[read_body_chunks] Not a `Chunked request body"
 
-let deflate_decompress str =
+let deflate_decode str =
   let i = De.bigstring_create De.io_buffer_size in
   let o = De.bigstring_create De.io_buffer_size in
   let w = De.make_window ~bits:15 in
@@ -375,7 +375,7 @@ let deflate_decompress str =
   | Ok () -> Ok (Buffer.contents r)
   | Error (`Msg s) -> Error s
 
-let deflate_compress str =
+let deflate_encode str =
   let i = De.bigstring_create De.io_buffer_size in
   let o = De.bigstring_create De.io_buffer_size in
   let w = De.Lz77.make_window ~bits:15 in
@@ -393,7 +393,7 @@ let deflate_compress str =
   De.Higher.compress ~w ~q ~refill ~flush i o ;
   Buffer.contents r
 
-let gzip_decompress (str : Bigstringaf.t) =
+let gzip_decode (str : Bigstringaf.t) =
   let i = De.bigstring_create De.io_buffer_size in
   let o = De.bigstring_create De.io_buffer_size in
   let r = Buffer.create 0x1000 in
@@ -412,7 +412,7 @@ let gzip_decompress (str : Bigstringaf.t) =
 
 let time () = Int32.of_float (Unix.gettimeofday ())
 
-let gzip_compress ?(level = 4) (str : Bigstringaf.t) =
+let gzip_encode ?(level = 4) (str : Bigstringaf.t) =
   let i = De.bigstring_create De.io_buffer_size in
   let o = De.bigstring_create De.io_buffer_size in
   let w = De.Lz77.make_window ~bits:15 in
