@@ -109,7 +109,8 @@ module Request = struct
 
   type accept_encoding = {encoding: encoding; weight: float option}
 
-  and encoding = [`Compress | `Deflate | `Gzip | `Br | `Any | `None]
+  and encoding =
+    [`Compress | `Deflate | `Gzip | `Br | `Any | `None | `Other of string]
 
   let meth t = t.meth
   let request_target t = t.request_target
@@ -165,7 +166,8 @@ module Request = struct
     | `Gzip -> "gzip"
     | `Br -> "br"
     | `Any -> "*"
-    | `None -> "" )
+    | `None -> ""
+    | `Other enc -> Format.sprintf "Other (%s)" enc )
     |> Format.fprintf fmt "%s"
 
   let accept_encodings t =
@@ -190,8 +192,7 @@ module Request = struct
       | "gzip" -> return `Gzip
       | "*" -> return `Any
       | "" -> return `None
-      | c -> fail (Format.sprintf "[accept_encoding] Unrecognized coding %s" c)
-    in
+      | enc -> return (`Other enc) in
     let p =
       let content_coding = token in
       let codings =
