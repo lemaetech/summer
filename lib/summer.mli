@@ -33,7 +33,7 @@ module Request : sig
 
   (** Represents [Accept-Encodings] header value.
       https://datatracker.ietf.org/doc/html/rfc7231#section-5.3.4 *)
-  type accept_encoding = {coding: encoding; weight: float option}
+  type accept_encoding = {encoding: encoding; weight: float option}
 
   and encoding =
     [ `Compress

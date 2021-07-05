@@ -107,7 +107,7 @@ module Request = struct
     | `TRACE
     | `OTHER of string ]
 
-  type accept_encoding = {coding: encoding; weight: float option}
+  type accept_encoding = {encoding: encoding; weight: float option}
 
   and encoding = [`Compress | `Deflate | `Gzip | `Br | `Any | `None]
 
@@ -154,7 +154,7 @@ module Request = struct
 
   let rec pp_accept_encoding fmt t =
     let fields =
-      [ Fmt.field "coding" (fun p -> p.coding) pp_coding
+      [ Fmt.field "coding" (fun p -> p.encoding) pp_coding
       ; Fmt.field "weight" (fun p -> p.weight) Fmt.(option float) ] in
     Fmt.record fields fmt t
 
@@ -198,12 +198,12 @@ module Request = struct
         content_coding <|> string_ci "identity" <|> string_cs "*" >>= coding
       in
       take
-        ((codings, optional weight) <$$> fun coding weight -> {coding; weight})
-    in
+        ( (codings, optional weight)
+        <$$> fun encoding weight -> {encoding; weight} ) in
     match List.assoc_opt C.accept_encodings t.headers with
     | Some enc ->
         if String.(trim enc |> length) = 0 then
-          Ok [{coding= `None; weight= None}]
+          Ok [{encoding= `None; weight= None}]
         else Reparse.String.(parse (create_input_from_string enc) p)
     | None -> Ok []
 
