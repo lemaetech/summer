@@ -107,7 +107,9 @@ module Request = struct
     | `TRACE
     | `OTHER of string ]
 
-  type accept_encoding = {coding: string; weight: float option}
+  type accept_encoding = {coding: coding; weight: float option}
+
+  and coding = [`Compress | `Deflate | `Gzip | `Br | `Any | `None]
 
   let meth t = t.meth
   let request_target t = t.request_target
@@ -190,14 +192,27 @@ module Request = struct
         >>| float_of_string in
       let qvalue = qvalue1 <|> qvalue2 in
       ows *> char ';' *> ows *> string_ci "q=" *> qvalue in
+    let coding = function
+      | "compress" -> return `Compress
+      | "deflate" -> return `Deflate
+      | "gzip" -> return `Gzip
+      | "*" -> return `Any
+      | "" -> return `None
+      | c -> fail (Format.sprintf "[accept_encoding] Unrecognized coding %s" c)
+    in
     let p =
       let content_coding = token in
-      let codings = content_coding <|> string_ci "identity" <|> string_cs "*" in
+      let codings =
+        content_coding <|> string_ci "identity" <|> string_cs "*" >>= coding
+      in
       take
         ((codings, optional weight) <$$> fun coding weight -> {coding; weight})
     in
     match List.assoc_opt C.accept_encodings t.headers with
-    | Some enc -> Reparse.(String.parse (String.create_input_from_string enc) p)
+    | Some enc ->
+        if String.(trim enc |> length) = 0 then
+          Ok [{coding= `None; weight= None}]
+        else Reparse.(String.parse (String.create_input_from_string enc) p)
     | None -> Ok []
 
   let rec t (client_addr : Lwt_unix.sockaddr) fd =

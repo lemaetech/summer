@@ -33,7 +33,9 @@ module Request : sig
 
   (** Represents [Accept-Encodings] header value.
       https://datatracker.ietf.org/doc/html/rfc7231#section-5.3.4 *)
-  type accept_encoding = {coding: string; weight: float option}
+  type accept_encoding = {coding: coding; weight: float option}
+
+  and coding = [`Compress | `Deflate | `Gzip | `Br | `Any | `None]
 
   val meth : t -> meth
   val request_target : t -> string
