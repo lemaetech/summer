@@ -393,8 +393,6 @@ let deflate_compress str =
   De.Higher.compress ~w ~q ~refill ~flush i o ;
   Buffer.contents r
 
-let time () = Int32.of_float (Unix.gettimeofday ())
-
 let gzip_decompress (str : Bigstringaf.t) =
   let i = De.bigstring_create De.io_buffer_size in
   let o = De.bigstring_create De.io_buffer_size in
@@ -411,6 +409,8 @@ let gzip_decompress (str : Bigstringaf.t) =
   match Gz.Higher.uncompress ~refill ~flush i o with
   | Ok m -> Ok (m, Buffer.contents r)
   | Error (`Msg err) -> Error err
+
+let time () = Int32.of_float (Unix.gettimeofday ())
 
 let gzip_compress ?(level = 4) (str : Bigstringaf.t) =
   let i = De.bigstring_create De.io_buffer_size in
