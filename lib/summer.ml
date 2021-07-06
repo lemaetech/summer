@@ -89,9 +89,9 @@ module C = struct
   let content_encodings = "Content-Encoding" [@@warning "-32"]
 end
 
-type encoding = {name: encoder_name; weight: float option}
+type encoding = {encoder: encoder; weight: float option}
 
-and encoder_name =
+and encoder =
   [`Compress | `Deflate | `Gzip | `Br | `Any | `None | `Other of string]
 
 module Request = struct
@@ -155,7 +155,7 @@ module Request = struct
     let fmt = Format.formatter_of_buffer buf in
     pp fmt t ; Format.fprintf fmt "%!" ; Buffer.contents buf
 
-  let accept_encodings t =
+  let accept_encoding t =
     let open Reparse.String in
     let open Make_common (Reparse.String) in
     let weight =
@@ -183,13 +183,17 @@ module Request = struct
       let codings =
         content_coding <|> string_ci "identity" <|> string_cs "*" >>= coding
       in
-      take ((codings, optional weight) <$$> fun name weight -> {name; weight})
+      take
+        ((codings, optional weight) <$$> fun encoder weight -> {encoder; weight})
     in
     match List.assoc_opt C.accept_encodings t.headers with
     | Some enc ->
-        if String.(trim enc |> length) = 0 then Ok [{name= `None; weight= None}]
+        if String.(trim enc |> length) = 0 then
+          Ok [{encoder= `None; weight= None}]
         else Reparse.String.(parse (create_input_from_string enc) p)
     | None -> Ok []
+
+  (* let content_encoding t = [] *)
 
   open Reparse_lwt_unix.Fd
   open Make_common (Reparse_lwt_unix.Fd)
@@ -240,11 +244,11 @@ end
 
 let rec pp_encoding fmt t =
   let fields =
-    [ Fmt.field "name" (fun p -> p.name) pp_encoder_name
+    [ Fmt.field "name" (fun p -> p.encoder) pp_encoder
     ; Fmt.field "weight" (fun p -> p.weight) Fmt.(option float) ] in
   Fmt.record fields fmt t
 
-and pp_encoder_name fmt coding =
+and pp_encoder fmt coding =
   ( match coding with
   | `Compress -> "compress"
   | `Deflate -> "deflate"
@@ -432,7 +436,7 @@ let gzip_encode ?(level = 4) (str : Bigstringaf.t) =
   Buffer.contents r
 
 let supported_encodings : encoding list =
-  [{name= `Gzip; weight= Some 1.0}; {name= `Deflate; weight= Some 0.0}]
+  [{encoder= `Gzip; weight= Some 1.0}; {encoder= `Deflate; weight= Some 0.0}]
 
 let read_body_content ~conn req =
   List.assoc_opt "Content-Length" (Request.headers req)

@@ -24,9 +24,9 @@ type chunk_extension = {name: string; value: string option}
 
 (** [accept_encoding] represents [Accept-Encoding] and [Content-Encoding] header
     values. https://datatracker.ietf.org/doc/html/rfc7231#section-5.3.4 *)
-type encoding = {name: encoder_name; weight: float option}
+type encoding = {encoder: encoder; weight: float option}
 
-and encoder_name =
+and encoder =
   [ `Compress
     (** Compress - https://datatracker.ietf.org/doc/html/rfc7230#section-4.2.1 *)
   | `Deflate
@@ -64,7 +64,8 @@ module Request : sig
   val http_version : t -> int * int
   val headers : t -> header list
   val client_addr : t -> Lwt_unix.sockaddr
-  val accept_encodings : t -> (encoding list, error) result
+  val accept_encoding : t -> (encoding list, error) result
+  (* val content_encoding : t -> (encoder_name list, error) result *)
 
   (** {2 Pretty Printers} *)
 
@@ -118,5 +119,5 @@ val start : port:int -> request_handler -> 'a
 
 (** {2 Pretty printers} *)
 
-val pp_encoder_name : Format.formatter -> encoder_name -> unit
+val pp_encoder : Format.formatter -> encoder -> unit
 val pp_encoding : Format.formatter -> encoding -> unit
