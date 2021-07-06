@@ -172,9 +172,9 @@ module Request = struct
       let qvalue = qvalue1 <|> qvalue2 in
       ows *> char ';' *> ows *> string_ci "q=" *> qvalue in
     let coding = function
-      | "compress" -> return `Compress
+      | "compress" | "x-compress" -> return `Compress
       | "deflate" -> return `Deflate
-      | "gzip" -> return `Gzip
+      | "gzip" | "x-gzip" -> return `Gzip
       | "*" -> return `Any
       | "" -> return `None
       | enc -> return (`Other enc) in
