@@ -10,21 +10,23 @@
 
 (** [Summer] is a HTTP/1.1 server. *)
 
-(** Request header - (name * value) *)
+(** [header] represents a request header, a tuple of (name * value) *)
 type header = string * string
 
 type bigstring = Lwt_bytes.t
+
+(** [error] represents an error string *)
 type error = string
 
 (** [chunk_extension] is an optional component of a chunk. It is defined at
     https://datatracker.ietf.org/doc/html/rfc7230#section-4.1.1 *)
 type chunk_extension = {name: string; value: string option}
 
-(** Represents [Accept-Encodings] header value.
-    https://datatracker.ietf.org/doc/html/rfc7231#section-5.3.4 *)
-type accept_encoding = {encoding: encoding; weight: float option}
+(** [accept_encoding] represents [Accept-Encoding] and [Content-Encoding] header
+    values. https://datatracker.ietf.org/doc/html/rfc7231#section-5.3.4 *)
+type encoding = {encoding: encoder_type; weight: float option}
 
-and encoding =
+and encoder_type =
   [ `Compress
     (** Compress - https://datatracker.ietf.org/doc/html/rfc7230#section-4.2.1 *)
   | `Deflate
@@ -61,7 +63,7 @@ module Request : sig
   val http_version : t -> int * int
   val headers : t -> header list
   val client_addr : t -> Lwt_unix.sockaddr
-  val accept_encodings : t -> (accept_encoding list, error) result
+  val accept_encodings : t -> (encoding list, error) result
 
   (** {2 Pretty Printers} *)
 
@@ -77,7 +79,7 @@ val respond_with_bigstring :
   -> bigstring
   -> unit Lwt.t
 
-(** [request_handler] Represents a request handler. *)
+(** [request_handler] represents a request handler. *)
 type request_handler = conn:Lwt_unix.file_descr -> Request.t -> unit Lwt.t
 
 (** {2 [deflate] content encoding, decoding *)
@@ -90,7 +92,7 @@ val deflate_encode : bigstring -> string
 val gzip_decode : bigstring -> (Gz.Higher.metadata * string, error) result
 val gzip_encode : ?level:int -> bigstring -> string
 
-val supported_encodings : accept_encoding list
+val supported_encodings : encoding list
 (** [supported_encodings] returns a list of encoding support by [Summer]
     HTTP/1.1 web server *)
 
@@ -113,5 +115,5 @@ val start : port:int -> request_handler -> 'a
 
 (** {2 Pretty printers} *)
 
-val pp_coding : Format.formatter -> encoding -> unit
-val pp_accept_encoding : Format.formatter -> accept_encoding -> unit
+val pp_encoder_type : Format.formatter -> encoder_type -> unit
+val pp_encoding : Format.formatter -> encoding -> unit

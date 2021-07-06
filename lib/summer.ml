@@ -89,9 +89,9 @@ module C = struct
   let content_encodings = "Content-Encoding" [@@warning "-32"]
 end
 
-type accept_encoding = {encoding: encoding; weight: float option}
+type encoding = {encoding: encoder_type; weight: float option}
 
-and encoding =
+and encoder_type =
   [`Compress | `Deflate | `Gzip | `Br | `Any | `None | `Other of string]
 
 module Request = struct
@@ -240,13 +240,13 @@ module Request = struct
     | header -> `OTHER header
 end
 
-let rec pp_accept_encoding fmt t =
+let rec pp_encoding fmt t =
   let fields =
-    [ Fmt.field "coding" (fun p -> p.encoding) pp_coding
+    [ Fmt.field "coding" (fun p -> p.encoding) pp_encoder_type
     ; Fmt.field "weight" (fun p -> p.weight) Fmt.(option float) ] in
   Fmt.record fields fmt t
 
-and pp_coding fmt coding =
+and pp_encoder_type fmt coding =
   ( match coding with
   | `Compress -> "compress"
   | `Deflate -> "deflate"
@@ -433,7 +433,7 @@ let gzip_encode ?(level = 4) (str : Bigstringaf.t) =
   Gz.Higher.compress ~w ~q ~level ~refill ~flush () cfg i o ;
   Buffer.contents r
 
-let supported_encodings : accept_encoding list =
+let supported_encodings : encoding list =
   [{encoding= `Gzip; weight= Some 1.0}; {encoding= `Deflate; weight= Some 0.0}]
 
 let read_body_content ~conn req =
