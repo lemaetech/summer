@@ -85,8 +85,8 @@ module C = struct
   let trailer = "Trailer"
   let content_length = "Content-Length"
   let chunked = "chunked"
-  let accept_encodings = "Accept-Encoding"
-  let content_encodings = "Content-Encoding" [@@warning "-32"]
+  let accept_encoding = "Accept-Encoding"
+  let content_encoding = "Content-Encoding" [@@warning "-32"]
 end
 
 type encoding = {encoder: encoder; weight: float option}
@@ -155,6 +155,14 @@ module Request = struct
     let fmt = Format.formatter_of_buffer buf in
     pp fmt t ; Format.fprintf fmt "%!" ; Buffer.contents buf
 
+  let coding = function
+    | "compress" | "x-compress" -> `Compress
+    | "deflate" -> `Deflate
+    | "gzip" | "x-gzip" -> `Gzip
+    | "*" -> `Any
+    | "" -> `None
+    | enc -> `Other enc
+
   let accept_encoding t =
     let open Reparse.String in
     let open Make_common (Reparse.String) in
@@ -171,29 +179,27 @@ module Request = struct
         | None -> return 1. in
       let qvalue = qvalue1 <|> qvalue2 in
       ows *> char ';' *> ows *> string_ci "q=" *> qvalue in
-    let coding = function
-      | "compress" | "x-compress" -> return `Compress
-      | "deflate" -> return `Deflate
-      | "gzip" | "x-gzip" -> return `Gzip
-      | "*" -> return `Any
-      | "" -> return `None
-      | enc -> return (`Other enc) in
     let p =
       let content_coding = token in
       let codings =
-        content_coding <|> string_ci "identity" <|> string_cs "*" >>= coding
+        content_coding <|> string_ci "identity" <|> string_cs "*" >>| coding
       in
       take
         ((codings, optional weight) <$$> fun encoder weight -> {encoder; weight})
     in
-    match List.assoc_opt C.accept_encodings t.headers with
+    match List.assoc_opt C.accept_encoding t.headers with
     | Some enc ->
         if String.(trim enc |> length) = 0 then
           Ok [{encoder= `None; weight= None}]
         else Reparse.String.(parse (create_input_from_string enc) p)
     | None -> Ok []
 
-  (* let content_encoding t = [] *)
+  let content_encoding t =
+    match List.assoc_opt C.content_encoding t.headers with
+    | Some enc ->
+        String.split_on_char ',' enc
+        |> List.map (fun enc -> String.trim enc |> coding)
+    | None -> []
 
   open Reparse_lwt_unix.Fd
   open Make_common (Reparse_lwt_unix.Fd)

@@ -65,7 +65,7 @@ module Request : sig
   val headers : t -> header list
   val client_addr : t -> Lwt_unix.sockaddr
   val accept_encoding : t -> (encoding list, error) result
-  (* val content_encoding : t -> (encoder_name list, error) result *)
+  val content_encoding : t -> encoder list
 
   (** {2 Pretty Printers} *)
 
