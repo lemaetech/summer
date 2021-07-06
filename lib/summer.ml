@@ -270,10 +270,13 @@ and pp_encoder fmt coding =
 let is_chunked req =
   List.assoc_opt C.transfer_encoding (Request.headers req)
   |> function
-  | Some encoding ->
+  | Some encoding -> (
+      _debug (fun k -> k "[is_chunked] encoding: %s" encoding) ;
       String.split_on_char ',' encoding
       |> List.map String.trim
-      |> fun encodings -> if List.mem C.chunked encodings then true else false
+      |> List.rev
+      |> fun encodings ->
+      try String.equal (List.hd encodings) C.chunked with _ -> false )
   | None -> false
 
 let read_body_chunks ~conn (Request.{headers; _} as req) ~on_chunk =
