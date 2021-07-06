@@ -240,7 +240,7 @@ end
 
 let rec pp_encoding fmt t =
   let fields =
-    [ Fmt.field "coding" (fun p -> p.name) pp_encoder_name
+    [ Fmt.field "name" (fun p -> p.name) pp_encoder_name
     ; Fmt.field "weight" (fun p -> p.weight) Fmt.(option float) ] in
   Fmt.record fields fmt t
 
