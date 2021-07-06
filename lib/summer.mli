@@ -71,14 +71,6 @@ module Request : sig
   val show : t -> string
 end
 
-val respond_with_bigstring :
-     conn:Lwt_unix.file_descr
-  -> status_code:int
-  -> reason_phrase:string
-  -> content_type:string
-  -> bigstring
-  -> unit Lwt.t
-
 (** [request_handler] represents a request handler. *)
 type request_handler = conn:Lwt_unix.file_descr -> Request.t -> unit Lwt.t
 
@@ -107,6 +99,16 @@ val read_body_chunks :
 val read_body_content :
   conn:Lwt_unix.file_descr -> Request.t -> (bigstring, error) Lwt_result.t
 (** [read_body_content] reads and returns request body content as bigstring. *)
+
+(** {2 Response} *)
+
+val respond_with_bigstring :
+     conn:Lwt_unix.file_descr
+  -> status_code:int
+  -> reason_phrase:string
+  -> content_type:string
+  -> bigstring
+  -> unit Lwt.t
 
 (** {2 HTTP server} *)
 
