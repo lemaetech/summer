@@ -77,17 +77,8 @@ val respond_with_bigstring :
   -> bigstring
   -> unit Lwt.t
 
-(** {2 Request handling} *)
-
+(** [request_handler] Represents a request handler. *)
 type request_handler = conn:Lwt_unix.file_descr -> Request.t -> unit Lwt.t
-
-val read_body_chunks :
-     conn:Lwt_unix.file_descr
-  -> Request.t
-  -> on_chunk:(chunk:bigstring -> len:int -> chunk_extension list -> unit Lwt.t)
-  -> (Request.t, error) Lwt_result.t
-(** [read_body_chunks] supports reading request body when
-    [Transfer-Encoding: chunked] is present in the request headers. *)
 
 (** {2 [deflate] content encoding, decoding *)
 
@@ -102,6 +93,14 @@ val gzip_encode : ?level:int -> bigstring -> string
 val supported_encodings : accept_encoding list
 (** [supported_encodings] returns a list of encoding support by [Summer]
     HTTP/1.1 web server *)
+
+val read_body_chunks :
+     conn:Lwt_unix.file_descr
+  -> Request.t
+  -> on_chunk:(chunk:bigstring -> len:int -> chunk_extension list -> unit Lwt.t)
+  -> (Request.t, error) Lwt_result.t
+(** [read_body_chunks] supports reading request body when
+    [Transfer-Encoding: chunked] is present in the request headers. *)
 
 val read_body_content :
   conn:Lwt_unix.file_descr -> Request.t -> (bigstring, error) Lwt_result.t
