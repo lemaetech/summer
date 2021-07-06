@@ -407,7 +407,7 @@ let gzip_decode (str : Bigstringaf.t) =
     let str = Bigstringaf.substring buf ~off:0 ~len in
     Buffer.add_string r str in
   match Gz.Higher.uncompress ~refill ~flush i o with
-  | Ok m -> Ok (m, Buffer.contents r)
+  | Ok (_ : Gz.Higher.metadata) -> Ok (Buffer.contents r)
   | Error (`Msg err) -> Error err
 
 let time () = Int32.of_float (Unix.gettimeofday ())

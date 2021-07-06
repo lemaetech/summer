@@ -89,7 +89,7 @@ val deflate_encode : bigstring -> string
 
 (** {2 [gzip] content encoding, decoding *)
 
-val gzip_decode : bigstring -> (Gz.Higher.metadata * string, error) result
+val gzip_decode : bigstring -> (string, error) result
 val gzip_encode : ?level:int -> bigstring -> string
 
 val supported_encodings : encoding list
