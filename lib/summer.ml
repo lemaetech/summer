@@ -89,9 +89,9 @@ module C = struct
   let content_encodings = "Content-Encoding" [@@warning "-32"]
 end
 
-type encoding = {encoding: encoder_type; weight: float option}
+type encoding = {name: encoder_name; weight: float option}
 
-and encoder_type =
+and encoder_name =
   [`Compress | `Deflate | `Gzip | `Br | `Any | `None | `Other of string]
 
 module Request = struct
@@ -183,13 +183,11 @@ module Request = struct
       let codings =
         content_coding <|> string_ci "identity" <|> string_cs "*" >>= coding
       in
-      take
-        ( (codings, optional weight)
-        <$$> fun encoding weight -> {encoding; weight} ) in
+      take ((codings, optional weight) <$$> fun name weight -> {name; weight})
+    in
     match List.assoc_opt C.accept_encodings t.headers with
     | Some enc ->
-        if String.(trim enc |> length) = 0 then
-          Ok [{encoding= `None; weight= None}]
+        if String.(trim enc |> length) = 0 then Ok [{name= `None; weight= None}]
         else Reparse.String.(parse (create_input_from_string enc) p)
     | None -> Ok []
 
@@ -242,11 +240,11 @@ end
 
 let rec pp_encoding fmt t =
   let fields =
-    [ Fmt.field "coding" (fun p -> p.encoding) pp_encoder_type
+    [ Fmt.field "coding" (fun p -> p.name) pp_encoder_name
     ; Fmt.field "weight" (fun p -> p.weight) Fmt.(option float) ] in
   Fmt.record fields fmt t
 
-and pp_encoder_type fmt coding =
+and pp_encoder_name fmt coding =
   ( match coding with
   | `Compress -> "compress"
   | `Deflate -> "deflate"
@@ -434,7 +432,7 @@ let gzip_encode ?(level = 4) (str : Bigstringaf.t) =
   Buffer.contents r
 
 let supported_encodings : encoding list =
-  [{encoding= `Gzip; weight= Some 1.0}; {encoding= `Deflate; weight= Some 0.0}]
+  [{name= `Gzip; weight= Some 1.0}; {name= `Deflate; weight= Some 0.0}]
 
 let read_body_content ~conn req =
   List.assoc_opt "Content-Length" (Request.headers req)
