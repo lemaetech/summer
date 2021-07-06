@@ -86,8 +86,8 @@ val gzip_decode : bigstring -> (string, error) result
 val gzip_encode : ?level:int -> bigstring -> string
 
 val supported_encodings : encoding list
-(** [supported_encodings] returns a list of encoding support by [Summer]
-    HTTP/1.1 web server *)
+(** [supported_encodings] returns a list of encoding supported by [Summer]
+    HTTP/1.1 web server. The following encodings are supported: [gzip,deflate] *)
 
 val read_body_chunks :
      conn:Lwt_unix.file_descr
