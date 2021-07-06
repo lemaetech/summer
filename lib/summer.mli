@@ -10,7 +10,7 @@
 
 (** [Summer] is a HTTP/1.1 server. *)
 
-(** [header] represents a request header, a tuple of (name * value) *)
+(** [header] represents a HTTP header, a tuple of (name * value) *)
 type header = string * string
 
 type bigstring = Lwt_bytes.t
