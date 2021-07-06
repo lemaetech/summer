@@ -44,6 +44,7 @@ and encoder_name =
     (** Any other encoding - possibly a custom one - not specified by the HTTP
         RFC 7230 or 7231 or 7932. *) ]
 
+(** [Request] represents a HTTP/1.1 request *)
 module Request : sig
   type t
 
