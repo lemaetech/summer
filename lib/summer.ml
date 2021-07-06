@@ -29,6 +29,8 @@ let _debug k =
 type chunk_extension = {name: string; value: string option}
 type header = string * string (* (name,value) *)
 
+type error = string
+
 (* module Parser = Reparse_lwt_unix.Fd *)
 (* open Parser *)
 

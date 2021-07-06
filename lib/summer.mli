@@ -13,6 +13,9 @@
 (** Request header - (name * value) *)
 type header = string * string
 
+type bigstring = Lwt_bytes.t
+type error = string
+
 (** [chunk_extension] is an optional component of a chunk. It is defined at
     https://datatracker.ietf.org/doc/html/rfc7230#section-4.1.1 *)
 type chunk_extension = {name: string; value: string option}
@@ -58,15 +61,13 @@ module Request : sig
   val http_version : t -> int * int
   val headers : t -> header list
   val client_addr : t -> Lwt_unix.sockaddr
-  val accept_encodings : t -> (accept_encoding list, string) result
+  val accept_encodings : t -> (accept_encoding list, error) result
 
   (** {2 Pretty Printers} *)
 
   val pp : Format.formatter -> t -> unit
   val show : t -> string
 end
-
-type bigstring = Lwt_bytes.t
 
 val respond_with_bigstring :
      conn:Lwt_unix.file_descr
@@ -84,18 +85,18 @@ val read_body_chunks :
      conn:Lwt_unix.file_descr
   -> Request.t
   -> on_chunk:(chunk:bigstring -> len:int -> chunk_extension list -> unit Lwt.t)
-  -> (Request.t, string) Lwt_result.t
+  -> (Request.t, error) Lwt_result.t
 (** [read_body_chunks] supports reading request body when
     [Transfer-Encoding: chunked] is present in the request headers. *)
 
 (** {2 [deflate] content encoding, decoding *)
 
-val deflate_decode : bigstring -> (string, string) result
+val deflate_decode : bigstring -> (string, error) result
 val deflate_encode : bigstring -> string
 
 (** {2 [gzip] content encoding, decoding *)
 
-val gzip_decode : bigstring -> (Gz.Higher.metadata * string, string) result
+val gzip_decode : bigstring -> (Gz.Higher.metadata * string, error) result
 val gzip_encode : ?level:int -> bigstring -> string
 
 val supported_encodings : accept_encoding list
@@ -103,7 +104,7 @@ val supported_encodings : accept_encoding list
     HTTP/1.1 web server *)
 
 val read_body_content :
-  conn:Lwt_unix.file_descr -> Request.t -> (bigstring, string) Lwt_result.t
+  conn:Lwt_unix.file_descr -> Request.t -> (bigstring, error) Lwt_result.t
 (** [read_body_content] reads and returns request body content as bigstring. *)
 
 (** {2 HTTP server} *)
