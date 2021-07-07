@@ -97,7 +97,7 @@ module Request = struct
     { meth: meth
     ; request_target: string
     ; http_version: int * int
-    ; headers: (string * string) list
+    ; headers: (string, string) Hashtbl.t
     ; client_addr: Lwt_unix.sockaddr }
 
   (* https://datatracker.ietf.org/doc/html/rfc7231#section-4 *)
@@ -115,9 +115,10 @@ module Request = struct
   let meth t = t.meth
   let request_target t = t.request_target
   let http_version t = t.http_version
-  let headers t = t.headers
+  let headers t = Hashtbl.to_seq t.headers |> List.of_seq
   let client_addr t = t.client_addr
-  let update_headers headers t = {t with headers}
+  let add_header (key, value) t = Hashtbl.replace t.headers key value
+  let remove_header key t = Hashtbl.remove t.headers key
 
   let rec pp fmt t =
     let fields =
@@ -147,7 +148,7 @@ module Request = struct
   and pp_headers fmt t =
     let colon fmt _ = Fmt.string fmt ": " in
     let header_field = Fmt.(pair ~sep:colon string string) in
-    Fmt.vbox Fmt.(list header_field) fmt t
+    Fmt.vbox Fmt.(list header_field) fmt (Hashtbl.to_seq t |> List.of_seq)
 
   let show t =
     let buf = Buffer.create 0 in
@@ -186,7 +187,7 @@ module Request = struct
       take
         ((codings, optional weight) <$$> fun encoder weight -> {encoder; weight})
     in
-    match List.assoc_opt C.accept_encoding t.headers with
+    match Hashtbl.find_opt t.headers C.accept_encoding with
     | Some enc ->
         if String.(trim enc |> length) = 0 then
           Ok [{encoder= `None; weight= None}]
@@ -194,7 +195,7 @@ module Request = struct
     | None -> Ok []
 
   let content_encoding t =
-    match List.assoc_opt C.content_encoding t.headers with
+    match Hashtbl.find_opt t.headers C.accept_encoding with
     | Some enc ->
         String.split_on_char ',' enc
         |> List.map (fun enc -> String.trim enc |> coding)
@@ -231,7 +232,11 @@ module Request = struct
       >|= fun (request_line, headers) ->
       let meth, request_target, http_version = request_line in
       let meth = parse_meth meth in
-      {meth; request_target; http_version; headers; client_addr})
+      { meth
+      ; request_target
+      ; http_version
+      ; headers= List.to_seq headers |> Hashtbl.of_seq
+      ; client_addr })
 
   and parse_meth meth =
     String.uppercase_ascii meth
@@ -275,11 +280,9 @@ and context =
 let request ctx = ctx.request
 
 (**-- Processing body --*)
-let update_request request ctx = ctx.request <- request
 
-let is_chunked req =
-  List.assoc_opt C.transfer_encoding (Request.headers req)
-  |> function
+let is_chunked (req : Request.t) =
+  match Hashtbl.find_opt req.headers C.transfer_encoding with
   | Some encoding -> (
       _debug (fun k -> k "[is_chunked] encoding: %s" encoding) ;
       String.split_on_char ',' encoding
@@ -325,7 +328,7 @@ let read_body_chunks ~on_chunk context =
   in
   let trailer_part request_headers =
     let allowed_trailers =
-      List.assoc_opt "Trailer" request_headers
+      Hashtbl.find_opt request_headers "Trailer"
       |> function
       | Some v -> String.split_on_char ',' v |> List.map String.trim
       | None -> [] in
@@ -337,14 +340,12 @@ let read_body_chunks ~on_chunk context =
   (* Chunk decoding algorithm is explained at
      https://datatracker.ietf.org/doc/html/rfc7230#section-4.1.3
   *)
-  let chunked_body headers ~on_chunk req =
+  let chunked_body (headers : (string, string) Hashtbl.t) ~on_chunk =
     let content_length = ref 0 in
     let* () =
       let p = (chunk_size, chunk_ext <* crlf) <$$> pair in
       let continue = ref true in
       take_while_cb p ~while_:(return !continue) ~on_take_cb:(fun (sz, exts) ->
-          _debug (fun k -> k "[chunked_body] sz: %d\n%!" sz) ;
-          _debug (fun k -> k "[chunked_body] exts: %d\n%!" (List.length exts)) ;
           if sz > 0 then (
             content_length := !content_length + sz ;
             let* chunk_data' = chunk_data sz in
@@ -356,35 +357,33 @@ let read_body_chunks ~on_chunk context =
             continue := false ;
             unit ) )
     in
-    let remove_chunked headers =
-      let te =
-        List.assoc C.transfer_encoding headers
-        |> String.split_on_char ','
-        |> List.map String.trim
-        |> List.filter (fun e -> not (String.equal e C.chunked))
-        |> String.concat "," in
-      let headers = List.remove_assoc C.transfer_encoding headers in
-      if String.length te > 0 then (C.transfer_encoding, te) :: headers
-      else headers in
+    (*-- Add trailer headers if any --*)
     let+ trailer_headers = trailer_part headers <* crlf <* trim_input_buffer in
     _debug (fun k ->
         k "[chunked_body] trailer_headers: %d\n%!" (List.length trailer_headers) ) ;
-    let headers =
-      List.remove_assoc C.trailer headers
-      |> remove_chunked
-      |> List.append trailer_headers
-      |> List.cons (C.content_length, string_of_int !content_length) in
-    Request.update_headers headers req in
+    List.iter
+      (fun (key, value) -> Hashtbl.replace headers key value)
+      trailer_headers ;
+    (*-- Remove 'chunked' from Transfer-Encoding header or remove it entirely. --*)
+    Hashtbl.find headers C.transfer_encoding
+    |> String.split_on_char ','
+    |> List.map String.trim
+    |> List.filter (fun e -> not (String.equal e C.chunked))
+    |> String.concat ","
+    |> fun te ->
+    if String.length te > 0 then Hashtbl.replace headers C.transfer_encoding te
+    else Hashtbl.remove headers C.transfer_encoding ;
+    (*-- Remove 'Trailer header --*)
+    Hashtbl.remove headers C.trailer ;
+    (*-- Add Content-Length header --*)
+    Hashtbl.replace headers C.content_length (string_of_int !content_length)
+  in
   let req = request context in
-  let headers = Request.headers req in
   if is_chunked req then
-    let p = chunked_body headers ~on_chunk req in
+    let p = chunked_body req.headers ~on_chunk in
     let input = Reparse_lwt_unix.Fd.create_input context.conn in
     Lwt.(
-      parse input p
-      >>= function
-      | Ok req -> update_request req context ; return ()
-      | Error e -> fail_with e)
+      parse input p >>= function Ok () -> return () | Error e -> fail_with e)
   else Lwt.fail_with "[read_body_chunks] Not a `Chunked request body"
 
 let deflate_decode str =
@@ -466,8 +465,7 @@ let supported_encodings : encoding list =
 
 let read_body_content context =
   let open Lwt in
-  List.assoc_opt "Content-Length" (Request.headers context.request)
-  |> function
+  match Hashtbl.find_opt context.request.headers "Content-Length" with
   | Some len -> (
     try
       let len = int_of_string len in
@@ -527,8 +525,7 @@ let rec handle_requests request_handler client_addr conn =
           _debug (fun k -> k "Unhandled exception: %s" (Printexc.to_string exn)) ;
           write_status conn 500 "Internal Server Error" )
       >>= fun () ->
-      List.assoc_opt "Connection" (Request.headers req)
-      |> function
+      match Hashtbl.find_opt req.headers "Connection" with
       | Some "close" -> Lwt_unix.close conn
       | Some _ | None -> handle_requests request_handler client_addr conn )
   | Error e ->

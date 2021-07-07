@@ -66,7 +66,8 @@ module Request : sig
   val client_addr : t -> Lwt_unix.sockaddr
   val accept_encoding : t -> (encoding list, error) result
   val content_encoding : t -> encoder list
-  val update_headers : header list -> t -> t
+  val add_header : header -> t -> unit
+  val remove_header : string -> t -> unit
 
   (** {2 Pretty Printers} *)
 
@@ -74,14 +75,15 @@ module Request : sig
   val show : t -> string
 end
 
-(** [context] holds data for [handler] function. *)
-type context
+(** {2 Handler} *)
 
 (** ['a handler] represents a connection handler. *)
 type 'a handler = context -> 'a Lwt.t
 
+(** [context] holds data for [handler] function. *)
+and context
+
 val request : context -> Request.t
-val update_request : Request.t -> context -> unit
 
 (** {2 [deflate] content encoding, decoding *)
 
