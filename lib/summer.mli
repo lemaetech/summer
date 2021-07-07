@@ -74,7 +74,7 @@ module Request : sig
 end
 
 (** [request_handler] represents a request handler. *)
-type request_handler = conn:Lwt_unix.file_descr -> Request.t -> unit Lwt.t
+type 'a handler = conn:Lwt_unix.file_descr -> Request.t -> 'a Lwt.t
 
 (** {2 [deflate] content encoding, decoding *)
 
@@ -114,7 +114,7 @@ val respond_with_bigstring :
 
 (** {2 HTTP server} *)
 
-val start : port:int -> request_handler -> 'a
+val start : port:int -> unit handler -> 'a
 (** [start port request_handler] Starts HTTP/1.1 server at [port]. *)
 
 (** {2 Pretty printers} *)

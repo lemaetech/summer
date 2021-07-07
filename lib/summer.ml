@@ -463,7 +463,7 @@ let read_body_content ~conn req =
   | None ->
       Lwt_result.fail "[read_body_content] 'Content-Length' header not found"
 
-type request_handler = conn:Lwt_unix.file_descr -> Request.t -> unit Lwt.t
+type 'a handler = conn:Lwt_unix.file_descr -> Request.t -> 'a Lwt.t
 type bigstring = Lwt_bytes.t
 
 open Lwt.Infix
