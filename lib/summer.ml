@@ -30,7 +30,9 @@ type chunk_extension = {name: string; value: string option}
 type header = string * string (* (name,value) *)
 
 type error = string
-type bigstring = Lwt_bytes.t
+
+type bigstring =
+  (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
 
 module Make_common (P : Reparse.PARSER) = struct
   open P
@@ -92,6 +94,7 @@ type encoding = {encoder: encoder; weight: float option}
 and encoder =
   [`Compress | `Deflate | `Gzip | `Br | `Any | `None | `Other of string]
 
+(*-- Request --*)
 type request =
   { meth: meth
   ; request_target: string
@@ -198,11 +201,10 @@ let content_encoding t =
       |> List.map (fun enc -> String.trim enc |> coding)
   | None -> []
 
-open Reparse_lwt_unix.Fd
-open Make_common (Reparse_lwt_unix.Fd)
-
 (*-- request-line = method SP request-target SP HTTP-version CRLF -- *)
 let request_line =
+  let open Reparse_lwt_unix.Fd in
+  let open Make_common (Reparse_lwt_unix.Fd) in
   let* meth = token <* space in
   let* request_target =
     take_while ~while_:(is_not space) unsafe_any_char
@@ -220,9 +222,14 @@ let request_line =
   in
   trim_input_buffer *> return (meth, request_target, http_version)
 
-let request_meta = (request_line, header_fields) <$$> pair <* crlf
+let request_meta =
+  let open Reparse_lwt_unix.Fd in
+  let open Make_common (Reparse_lwt_unix.Fd) in
+  (request_line, header_fields) <$$> pair <* crlf
 
 let rec create_request (client_addr : Lwt_unix.sockaddr) fd =
+  let open Reparse_lwt_unix.Fd in
+  let open Make_common (Reparse_lwt_unix.Fd) in
   let input = Reparse_lwt_unix.Fd.create_input fd in
   Lwt_result.(
     parse input request_meta
@@ -247,6 +254,8 @@ and parse_meth meth =
   | "OPTIONS" -> `OPTIONS
   | "TRACE" -> `TRACE
   | header -> `OTHER header
+
+(*-- Request --*)
 
 let rec pp_encoding fmt t =
   let fields =

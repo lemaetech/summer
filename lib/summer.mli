@@ -13,7 +13,8 @@
 (** [header] represents a HTTP header, a tuple of (name * value) *)
 type header = string * string
 
-type bigstring = Lwt_bytes.t
+type bigstring =
+  (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
 
 (** [error] represents an error string *)
 type error = string
