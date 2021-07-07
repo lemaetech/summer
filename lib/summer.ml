@@ -119,6 +119,7 @@ module Request = struct
   let http_version t = t.http_version
   let headers t = t.headers
   let client_addr t = t.client_addr
+  let update_headers headers t = {t with headers}
 
   let rec pp fmt t =
     let fields =
@@ -364,7 +365,7 @@ let read_body_chunks ~on_chunk ~conn (Request.{headers; _} as req) =
       |> remove_chunked
       |> List.append trailer_headers
       |> List.cons (C.content_length, string_of_int !content_length) in
-    ({req with headers} : Request.t) in
+    Request.update_headers headers req in
   if is_chunked req then
     let input = Reparse_lwt_unix.Fd.create_input conn in
     let p = chunked_body headers ~on_chunk in
