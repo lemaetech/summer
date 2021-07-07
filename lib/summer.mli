@@ -97,7 +97,8 @@ val read_body_chunks :
     [Transfer-Encoding: chunked] is present in the request headers. *)
 
 val read_body_content : bigstring handler
-(** [read_body_content] reads and returns request body content as bigstring. *)
+(** [read_body_content] reads and returns request body content as bigstring when
+    [Content-Length] header is present in request. *)
 
 (** {2 Response} *)
 
