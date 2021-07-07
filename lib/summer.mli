@@ -66,6 +66,7 @@ module Request : sig
   val client_addr : t -> Lwt_unix.sockaddr
   val accept_encoding : t -> (encoding list, error) result
   val content_encoding : t -> encoder list
+  val update_headers : header list -> t -> t
 
   (** {2 Pretty Printers} *)
 
@@ -73,8 +74,8 @@ module Request : sig
   val show : t -> string
 end
 
-(** [request_handler] represents a request handler. *)
-type request_handler = conn:Lwt_unix.file_descr -> Request.t -> unit Lwt.t
+(** ['a handler] represents a connection handler. *)
+type 'a handler = conn:Lwt_unix.file_descr -> Request.t -> 'a Lwt.t
 
 (** {2 [deflate] content encoding, decoding *)
 
@@ -91,30 +92,27 @@ val supported_encodings : encoding list
     HTTP/1.1 web server. The following encodings are supported: [gzip,deflate] *)
 
 val read_body_chunks :
-     conn:Lwt_unix.file_descr
-  -> Request.t
-  -> on_chunk:(chunk:bigstring -> len:int -> chunk_extension list -> unit Lwt.t)
-  -> (Request.t, error) Lwt_result.t
+     on_chunk:(chunk:bigstring -> len:int -> chunk_extension list -> unit Lwt.t)
+  -> Request.t handler
 (** [read_body_chunks] supports reading request body when
     [Transfer-Encoding: chunked] is present in the request headers. *)
 
-val read_body_content :
-  conn:Lwt_unix.file_descr -> Request.t -> (bigstring, error) Lwt_result.t
-(** [read_body_content] reads and returns request body content as bigstring. *)
+val read_body_content : bigstring handler
+(** [read_body_content] reads and returns request body content as bigstring when
+    [Content-Length] header is present in request. *)
 
 (** {2 Response} *)
 
 val respond_with_bigstring :
-     conn:Lwt_unix.file_descr
-  -> status_code:int
+     status_code:int
   -> reason_phrase:string
   -> content_type:string
   -> bigstring
-  -> unit Lwt.t
+  -> unit handler
 
 (** {2 HTTP server} *)
 
-val start : port:int -> request_handler -> 'a
+val start : port:int -> unit handler -> 'a
 (** [start port request_handler] Starts HTTP/1.1 server at [port]. *)
 
 (** {2 Pretty printers} *)

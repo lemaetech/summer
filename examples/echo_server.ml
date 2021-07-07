@@ -15,7 +15,6 @@ let () =
     ignore "An echo HTTP server using summer!" ;
   Summer.start ~port:!port (fun ~conn req ->
       Summer.(
-        Request.show req
-        |> Lwt_bytes.of_string
-        |> respond_with_bigstring ~conn ~status_code:200 ~reason_phrase:"OK"
-             ~content_type:"text/plain") )
+        let text = Request.show req |> Lwt_bytes.of_string in
+        respond_with_bigstring ~conn ~status_code:200 ~reason_phrase:"OK"
+          ~content_type:"text/plain" text req) )

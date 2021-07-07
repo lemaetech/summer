@@ -119,6 +119,7 @@ module Request = struct
   let http_version t = t.http_version
   let headers t = t.headers
   let client_addr t = t.client_addr
+  let update_headers headers t = {t with headers}
 
   let rec pp fmt t =
     let fields =
@@ -279,7 +280,7 @@ let is_chunked req =
       try String.equal (List.hd encodings) C.chunked with _ -> false )
   | None -> false
 
-let read_body_chunks ~conn (Request.{headers; _} as req) ~on_chunk =
+let read_body_chunks ~on_chunk ~conn (Request.{headers; _} as req) =
   let open Reparse_lwt_unix.Fd in
   let open Make_common (Reparse_lwt_unix.Fd) in
   let quoted_pair = char '\\' *> (whitespace <|> vchar) in
@@ -364,11 +365,13 @@ let read_body_chunks ~conn (Request.{headers; _} as req) ~on_chunk =
       |> remove_chunked
       |> List.append trailer_headers
       |> List.cons (C.content_length, string_of_int !content_length) in
-    ({req with headers} : Request.t) in
+    Request.update_headers headers req in
   if is_chunked req then
     let input = Reparse_lwt_unix.Fd.create_input conn in
-    chunked_body headers ~on_chunk |> parse input
-  else Lwt_result.fail "[read_body_chunks] Not a `Chunked request body"
+    let p = chunked_body headers ~on_chunk in
+    Lwt.(
+      parse input p >>= function Ok req -> return req | Error e -> fail_with e)
+  else Lwt.fail_with "[read_body_chunks] Not a `Chunked request body"
 
 let deflate_decode str =
   let i = De.bigstring_create De.io_buffer_size in
@@ -448,29 +451,29 @@ let supported_encodings : encoding list =
   [{encoder= `Gzip; weight= Some 1.0}; {encoder= `Deflate; weight= Some 0.0}]
 
 let read_body_content ~conn req =
+  let open Lwt in
   List.assoc_opt "Content-Length" (Request.headers req)
   |> function
   | Some len -> (
-      Lwt.(
-        try
-          let len = int_of_string len in
-          let buf = Lwt_bytes.create len in
-          Lwt_bytes.read conn buf 0 len >>= fun _ -> return (Ok buf)
-        with _ ->
-          Format.sprintf
-            "[read_body_content] Invalid 'Content-Length' header value: %s" len
-          |> Lwt_result.fail) )
+    try
+      let len = int_of_string len in
+      let buf = Lwt_bytes.create len in
+      Lwt_bytes.read conn buf 0 len >>= fun _ -> return buf
+    with _ ->
+      Format.sprintf
+        "[read_body_content] Invalid 'Content-Length' header value: %s" len
+      |> Lwt.fail_with )
   | None ->
-      Lwt_result.fail "[read_body_content] 'Content-Length' header not found"
+      Lwt.fail_with "[read_body_content] 'Content-Length' header not found"
 
-type request_handler = conn:Lwt_unix.file_descr -> Request.t -> unit Lwt.t
+type 'a handler = conn:Lwt_unix.file_descr -> Request.t -> 'a Lwt.t
 type bigstring = Lwt_bytes.t
 
 open Lwt.Infix
 module IO_vector = Lwt_unix.IO_vectors
 
-let respond_with_bigstring ~conn ~(status_code : int) ~(reason_phrase : string)
-    ~(content_type : string) (body : bigstring) =
+let respond_with_bigstring ~(status_code : int) ~(reason_phrase : string)
+    ~(content_type : string) (body : bigstring) ~conn (_req : Request.t) =
   let iov = IO_vector.create () in
   let status_line =
     Format.sprintf "HTTP/1.1 %d %s\r\n" status_code reason_phrase
