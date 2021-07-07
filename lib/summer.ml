@@ -347,21 +347,20 @@ let read_body_chunks ~on_chunk context =
   *)
   let chunked_body (headers : (string, string) Hashtbl.t) ~on_chunk =
     let content_length = ref 0 in
-    let* () =
-      let p = (chunk_size, chunk_ext <* crlf) <$$> pair in
-      let continue = ref true in
-      take_while_cb p ~while_:(return !continue) ~on_take_cb:(fun (sz, exts) ->
-          if sz > 0 then (
-            content_length := !content_length + sz ;
-            let* chunk_data' = chunk_data sz in
-            _debug (fun k ->
-                k "[chunked_body] chunk_data: %d\n%!"
-                  (Lwt_bytes.length chunk_data') ) ;
-            on_chunk ~chunk:chunk_data' ~len:sz exts |> of_promise )
-          else (
-            continue := false ;
-            unit ) )
-    in
+    let p = (chunk_size, chunk_ext <* crlf) <$$> pair in
+    let continue = ref true in
+    take_while_cb p ~while_:(return !continue) ~on_take_cb:(fun (sz, exts) ->
+        if sz > 0 then (
+          content_length := !content_length + sz ;
+          let* chunk_data' = chunk_data sz in
+          _debug (fun k ->
+              k "[chunked_body] chunk_data: %d\n%!"
+                (Lwt_bytes.length chunk_data') ) ;
+          on_chunk ~chunk:chunk_data' ~len:sz exts |> of_promise )
+        else (
+          continue := false ;
+          unit ) )
+    >>= fun () ->
     (*-- Add trailer headers if any --*)
     let+ trailer_headers = trailer_part headers <* crlf <* trim_input_buffer in
     _debug (fun k ->
