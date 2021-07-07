@@ -73,7 +73,7 @@ module Request : sig
   val show : t -> string
 end
 
-(** [request_handler] represents a request handler. *)
+(** ['a handler] represents a connection handler. *)
 type 'a handler = conn:Lwt_unix.file_descr -> Request.t -> 'a Lwt.t
 
 (** {2 [deflate] content encoding, decoding *)
