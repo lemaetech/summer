@@ -118,7 +118,7 @@ val respond_with_bigstring :
 
 (** {2 HTTP server} *)
 
-val start : port:int -> unit handler -> 'a
+val start : port:int -> unit handler -> unit
 (** [start port request_handler] Starts HTTP/1.1 server at [port]. *)
 
 (** {2 Pretty printers} *)
