@@ -450,20 +450,20 @@ let supported_encodings : encoding list =
   [{encoder= `Gzip; weight= Some 1.0}; {encoder= `Deflate; weight= Some 0.0}]
 
 let read_body_content ~conn req =
+  let open Lwt in
   List.assoc_opt "Content-Length" (Request.headers req)
   |> function
   | Some len -> (
-      Lwt.(
-        try
-          let len = int_of_string len in
-          let buf = Lwt_bytes.create len in
-          Lwt_bytes.read conn buf 0 len >>= fun _ -> return (Ok buf)
-        with _ ->
-          Format.sprintf
-            "[read_body_content] Invalid 'Content-Length' header value: %s" len
-          |> Lwt_result.fail) )
+    try
+      let len = int_of_string len in
+      let buf = Lwt_bytes.create len in
+      Lwt_bytes.read conn buf 0 len >>= fun _ -> return buf
+    with _ ->
+      Format.sprintf
+        "[read_body_content] Invalid 'Content-Length' header value: %s" len
+      |> Lwt.fail_with )
   | None ->
-      Lwt_result.fail "[read_body_content] 'Content-Length' header not found"
+      Lwt.fail_with "[read_body_content] 'Content-Length' header not found"
 
 type 'a handler = conn:Lwt_unix.file_descr -> Request.t -> 'a Lwt.t
 type bigstring = Lwt_bytes.t
