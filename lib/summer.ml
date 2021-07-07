@@ -279,7 +279,7 @@ let is_chunked req =
       try String.equal (List.hd encodings) C.chunked with _ -> false )
   | None -> false
 
-let read_body_chunks ~conn (Request.{headers; _} as req) ~on_chunk =
+let read_body_chunks ~on_chunk ~conn (Request.{headers; _} as req) =
   let open Reparse_lwt_unix.Fd in
   let open Make_common (Reparse_lwt_unix.Fd) in
   let quoted_pair = char '\\' *> (whitespace <|> vchar) in
@@ -367,8 +367,10 @@ let read_body_chunks ~conn (Request.{headers; _} as req) ~on_chunk =
     ({req with headers} : Request.t) in
   if is_chunked req then
     let input = Reparse_lwt_unix.Fd.create_input conn in
-    chunked_body headers ~on_chunk |> parse input
-  else Lwt_result.fail "[read_body_chunks] Not a `Chunked request body"
+    let p = chunked_body headers ~on_chunk in
+    Lwt.(
+      parse input p >>= function Ok req -> return req | Error e -> fail_with e)
+  else Lwt.fail_with "[read_body_chunks] Not a `Chunked request body"
 
 let deflate_decode str =
   let i = De.bigstring_create De.io_buffer_size in

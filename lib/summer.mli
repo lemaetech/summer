@@ -91,10 +91,8 @@ val supported_encodings : encoding list
     HTTP/1.1 web server. The following encodings are supported: [gzip,deflate] *)
 
 val read_body_chunks :
-     conn:Lwt_unix.file_descr
-  -> Request.t
-  -> on_chunk:(chunk:bigstring -> len:int -> chunk_extension list -> unit Lwt.t)
-  -> (Request.t, error) Lwt_result.t
+     on_chunk:(chunk:bigstring -> len:int -> chunk_extension list -> unit Lwt.t)
+  -> Request.t handler
 (** [read_body_chunks] supports reading request body when
     [Transfer-Encoding: chunked] is present in the request headers. *)
 
