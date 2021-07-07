@@ -60,13 +60,14 @@ module Request : sig
     | `OTHER of string ]
 
   val meth : t -> meth
-  val request_target : t -> string
+  val target : t -> string
   val http_version : t -> int * int
   val headers : t -> header list
   val client_addr : t -> Lwt_unix.sockaddr
   val accept_encoding : t -> (encoding list, error) result
   val content_encoding : t -> encoder list
-  val update_headers : header list -> t -> t
+  val add_header : header -> t -> unit
+  val remove_header : string -> t -> unit
 
   (** {2 Pretty Printers} *)
 
@@ -74,8 +75,15 @@ module Request : sig
   val show : t -> string
 end
 
+(** {2 Handler} *)
+
 (** ['a handler] represents a connection handler. *)
-type 'a handler = conn:Lwt_unix.file_descr -> Request.t -> 'a Lwt.t
+type 'a handler = context -> 'a Lwt.t
+
+(** [context] holds data for [handler] function. *)
+and context
+
+val request : context -> Request.t
 
 (** {2 [deflate] content encoding, decoding *)
 
@@ -93,7 +101,7 @@ val supported_encodings : encoding list
 
 val read_body_chunks :
      on_chunk:(chunk:bigstring -> len:int -> chunk_extension list -> unit Lwt.t)
-  -> Request.t handler
+  -> unit handler
 (** [read_body_chunks] supports reading request body when
     [Transfer-Encoding: chunked] is present in the request headers. *)
 
