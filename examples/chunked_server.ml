@@ -14,12 +14,14 @@ let () =
   Arg.parse
     [("-p", Arg.Set_int port, " Listening port number (3000 by default)")]
     ignore "An echo HTTP server using summer!" ;
-  Summer.start ~port:!port (fun ~conn req ->
+  Summer.start ~port:!port (fun context ->
       let buf = ref (Cstruct.create 0) in
-      Summer.read_body_chunks req ~conn ~on_chunk:(fun ~chunk ~len _exts ->
+      Summer.read_body_chunks
+        ~on_chunk:(fun ~chunk ~len _exts ->
           buf := Cstruct.append !buf (Cstruct.of_bigarray chunk ~len) ;
           Lwt.return () )
-      >>= fun (_req : Summer.Request.t) ->
+        context
+      >>= fun () ->
       let buf = Cstruct.to_bigarray !buf in
-      Summer.respond_with_bigstring ~conn ~status_code:200 ~reason_phrase:"OK"
-        ~content_type:"text/plain" buf req )
+      Summer.respond_with_bigstring ~status_code:200 ~reason_phrase:"OK"
+        ~content_type:"text/plain" buf context )

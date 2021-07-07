@@ -30,9 +30,7 @@ type chunk_extension = {name: string; value: string option}
 type header = string * string (* (name,value) *)
 
 type error = string
-
-(* module Parser = Reparse_lwt_unix.Fd *)
-(* open Parser *)
+type bigstring = Lwt_bytes.t
 
 module Make_common (P : Reparse.PARSER) = struct
   open P
@@ -266,7 +264,18 @@ and pp_encoder fmt coding =
   | `Other enc -> Format.sprintf "Other (%s)" enc )
   |> Format.fprintf fmt "%s"
 
+(*-- Handler and context --*)
+type 'a handler = context -> 'a Lwt.t
+
+and context =
+  { conn: Lwt_unix.file_descr
+  ; mutable request: Request.t
+  ; mutable response_headers: header list }
+
+let request ctx = ctx.request
+
 (**-- Processing body --*)
+let update_request request ctx = ctx.request <- request
 
 let is_chunked req =
   List.assoc_opt C.transfer_encoding (Request.headers req)
@@ -280,7 +289,7 @@ let is_chunked req =
       try String.equal (List.hd encodings) C.chunked with _ -> false )
   | None -> false
 
-let read_body_chunks ~on_chunk ~conn (Request.{headers; _} as req) =
+let read_body_chunks ~on_chunk context =
   let open Reparse_lwt_unix.Fd in
   let open Make_common (Reparse_lwt_unix.Fd) in
   let quoted_pair = char '\\' *> (whitespace <|> vchar) in
@@ -328,7 +337,7 @@ let read_body_chunks ~on_chunk ~conn (Request.{headers; _} as req) =
   (* Chunk decoding algorithm is explained at
      https://datatracker.ietf.org/doc/html/rfc7230#section-4.1.3
   *)
-  let chunked_body headers ~on_chunk =
+  let chunked_body headers ~on_chunk req =
     let content_length = ref 0 in
     let* () =
       let p = (chunk_size, chunk_ext <* crlf) <$$> pair in
@@ -366,11 +375,16 @@ let read_body_chunks ~on_chunk ~conn (Request.{headers; _} as req) =
       |> List.append trailer_headers
       |> List.cons (C.content_length, string_of_int !content_length) in
     Request.update_headers headers req in
+  let req = request context in
+  let headers = Request.headers req in
   if is_chunked req then
-    let input = Reparse_lwt_unix.Fd.create_input conn in
-    let p = chunked_body headers ~on_chunk in
+    let p = chunked_body headers ~on_chunk req in
+    let input = Reparse_lwt_unix.Fd.create_input context.conn in
     Lwt.(
-      parse input p >>= function Ok req -> return req | Error e -> fail_with e)
+      parse input p
+      >>= function
+      | Ok req -> update_request req context ; return ()
+      | Error e -> fail_with e)
   else Lwt.fail_with "[read_body_chunks] Not a `Chunked request body"
 
 let deflate_decode str =
@@ -450,15 +464,15 @@ let gzip_encode ?(level = 4) (str : Bigstringaf.t) =
 let supported_encodings : encoding list =
   [{encoder= `Gzip; weight= Some 1.0}; {encoder= `Deflate; weight= Some 0.0}]
 
-let read_body_content ~conn req =
+let read_body_content context =
   let open Lwt in
-  List.assoc_opt "Content-Length" (Request.headers req)
+  List.assoc_opt "Content-Length" (Request.headers context.request)
   |> function
   | Some len -> (
     try
       let len = int_of_string len in
       let buf = Lwt_bytes.create len in
-      Lwt_bytes.read conn buf 0 len >>= fun _ -> return buf
+      Lwt_bytes.read context.conn buf 0 len >>= fun _ -> return buf
     with _ ->
       Format.sprintf
         "[read_body_content] Invalid 'Content-Length' header value: %s" len
@@ -466,14 +480,11 @@ let read_body_content ~conn req =
   | None ->
       Lwt.fail_with "[read_body_content] 'Content-Length' header not found"
 
-type 'a handler = conn:Lwt_unix.file_descr -> Request.t -> 'a Lwt.t
-type bigstring = Lwt_bytes.t
-
 open Lwt.Infix
 module IO_vector = Lwt_unix.IO_vectors
 
 let respond_with_bigstring ~(status_code : int) ~(reason_phrase : string)
-    ~(content_type : string) (body : bigstring) ~conn (_req : Request.t) =
+    ~(content_type : string) (body : bigstring) context =
   let iov = IO_vector.create () in
   let status_line =
     Format.sprintf "HTTP/1.1 %d %s\r\n" status_code reason_phrase
@@ -492,7 +503,7 @@ let respond_with_bigstring ~(status_code : int) ~(reason_phrase : string)
     (Lwt_bytes.length content_length_header) ;
   IO_vector.append_bytes iov (Bytes.unsafe_of_string "\r\n") 0 2 ;
   IO_vector.append_bigarray iov body 0 content_length ;
-  Lwt_unix.writev conn iov >|= fun _ -> ()
+  Lwt_unix.writev context.conn iov >|= fun _ -> ()
 
 let write_status conn status_code reason_phrase =
   let iov = IO_vector.create () in
@@ -509,7 +520,9 @@ let rec handle_requests request_handler client_addr conn =
   | Ok req -> (
       _debug (fun k -> k "%s\n%!" (Request.show req)) ;
       Lwt.catch
-        (fun () -> request_handler ~conn req)
+        (fun () ->
+          let context = {conn; request= req; response_headers= []} in
+          request_handler context )
         (fun exn ->
           _debug (fun k -> k "Unhandled exception: %s" (Printexc.to_string exn)) ;
           write_status conn 500 "Internal Server Error" )

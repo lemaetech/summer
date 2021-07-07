@@ -74,8 +74,14 @@ module Request : sig
   val show : t -> string
 end
 
+(** [context] holds data for [handler] fuction. *)
+type context
+
 (** ['a handler] represents a connection handler. *)
-type 'a handler = conn:Lwt_unix.file_descr -> Request.t -> 'a Lwt.t
+type 'a handler = context -> 'a Lwt.t
+
+val request : context -> Request.t
+val update_request : Request.t -> context -> unit
 
 (** {2 [deflate] content encoding, decoding *)
 
@@ -93,7 +99,7 @@ val supported_encodings : encoding list
 
 val read_body_chunks :
      on_chunk:(chunk:bigstring -> len:int -> chunk_extension list -> unit Lwt.t)
-  -> Request.t handler
+  -> unit handler
 (** [read_body_chunks] supports reading request body when
     [Transfer-Encoding: chunked] is present in the request headers. *)
 
