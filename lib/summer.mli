@@ -44,36 +44,33 @@ and encoder =
     (** Any other encoding - possibly a custom one - not specified by the HTTP
         RFC 7230 or 7231 or 7932. *) ]
 
-(** [Request] represents a HTTP/1.1 request *)
-module Request : sig
-  type t
+(** {2 Request} *)
 
-  type meth =
-    [ `GET
-    | `HEAD
-    | `POST
-    | `PUT
-    | `DELETE
-    | `CONNECT
-    | `OPTIONS
-    | `TRACE
-    | `OTHER of string ]
+(** [request] represents a HTTP/1.1 request *)
+type request
 
-  val meth : t -> meth
-  val target : t -> string
-  val http_version : t -> int * int
-  val headers : t -> header list
-  val client_addr : t -> Lwt_unix.sockaddr
-  val accept_encoding : t -> (encoding list, error) result
-  val content_encoding : t -> encoder list
-  val add_header : header -> t -> unit
-  val remove_header : string -> t -> unit
+type meth =
+  [ `GET
+  | `HEAD
+  | `POST
+  | `PUT
+  | `DELETE
+  | `CONNECT
+  | `OPTIONS
+  | `TRACE
+  | `OTHER of string ]
 
-  (** {2 Pretty Printers} *)
-
-  val pp : Format.formatter -> t -> unit
-  val show : t -> string
-end
+val meth : request -> meth
+val target : request -> string
+val http_version : request -> int * int
+val headers : request -> header list
+val client_addr : request -> Lwt_unix.sockaddr
+val accept_encoding : request -> (encoding list, error) result
+val content_encoding : request -> encoder list
+val add_header : header -> request -> unit
+val remove_header : string -> request -> unit
+val pp_request : Format.formatter -> request -> unit
+val show_request : request -> string
 
 (** {2 Handler} *)
 
@@ -83,7 +80,7 @@ type 'a handler = context -> 'a Lwt.t
 (** [context] holds data for [handler] function. *)
 and context
 
-val request : context -> Request.t
+val request : context -> request
 
 (** {2 [deflate] content encoding, decoding *)
 

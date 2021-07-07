@@ -92,165 +92,161 @@ type encoding = {encoder: encoder; weight: float option}
 and encoder =
   [`Compress | `Deflate | `Gzip | `Br | `Any | `None | `Other of string]
 
-module Request = struct
-  type t =
-    { meth: meth
-    ; request_target: string
-    ; http_version: int * int
-    ; headers: (string, string) Hashtbl.t
-    ; client_addr: Lwt_unix.sockaddr }
+type request =
+  { meth: meth
+  ; request_target: string
+  ; http_version: int * int
+  ; headers: (string, string) Hashtbl.t
+  ; client_addr: Lwt_unix.sockaddr }
 
-  (* https://datatracker.ietf.org/doc/html/rfc7231#section-4 *)
-  and meth =
-    [ `GET
-    | `HEAD
-    | `POST
-    | `PUT
-    | `DELETE
-    | `CONNECT
-    | `OPTIONS
-    | `TRACE
-    | `OTHER of string ]
+(* https://datatracker.ietf.org/doc/html/rfc7231#section-4 *)
+and meth =
+  [ `GET
+  | `HEAD
+  | `POST
+  | `PUT
+  | `DELETE
+  | `CONNECT
+  | `OPTIONS
+  | `TRACE
+  | `OTHER of string ]
 
-  let meth t = t.meth
-  let target t = t.request_target
-  let http_version t = t.http_version
-  let headers t = Hashtbl.to_seq t.headers |> List.of_seq
-  let client_addr t = t.client_addr
-  let add_header (key, value) t = Hashtbl.replace t.headers key value
-  let remove_header key t = Hashtbl.remove t.headers key
+let meth t = t.meth
+let target t = t.request_target
+let http_version t = t.http_version
+let headers t = Hashtbl.to_seq t.headers |> List.of_seq
+let client_addr t = t.client_addr
+let add_header (key, value) t = Hashtbl.replace t.headers key value
+let remove_header key t = Hashtbl.remove t.headers key
 
-  let rec pp fmt t =
-    let fields =
-      [ Fmt.field "meth" (fun p -> p.meth) pp_meth
-      ; Fmt.field "request_target" (fun p -> p.request_target) Fmt.string
-      ; Fmt.field "http_version" (fun p -> p.http_version) pp_http_version
-      ; Fmt.field "headers" (fun p -> p.headers) pp_headers ] in
-    Fmt.record fields fmt t
+let rec pp_request fmt t =
+  let fields =
+    [ Fmt.field "meth" (fun p -> p.meth) pp_meth
+    ; Fmt.field "request_target" (fun p -> p.request_target) Fmt.string
+    ; Fmt.field "http_version" (fun p -> p.http_version) pp_http_version
+    ; Fmt.field "headers" (fun p -> p.headers) pp_headers ] in
+  Fmt.record fields fmt t
 
-  and pp_http_version fmt t =
-    let comma' fmt _ = Fmt.string fmt "," in
-    Fmt.(pair ~sep:comma' int int) fmt t
+and pp_http_version fmt t =
+  let comma' fmt _ = Fmt.string fmt "," in
+  Fmt.(pair ~sep:comma' int int) fmt t
 
-  and pp_meth fmt t =
-    ( match t with
-    | `GET -> "GET"
-    | `HEAD -> "HEAD"
-    | `POST -> "POST"
-    | `PUT -> "PUT"
-    | `DELETE -> "DELETE"
-    | `CONNECT -> "CONNECT"
-    | `OPTIONS -> "OPTIONS"
-    | `TRACE -> "TRACE"
-    | `OTHER s -> Format.sprintf "OTHER (%s)" s )
-    |> Format.fprintf fmt "%s"
+and pp_meth fmt t =
+  ( match t with
+  | `GET -> "GET"
+  | `HEAD -> "HEAD"
+  | `POST -> "POST"
+  | `PUT -> "PUT"
+  | `DELETE -> "DELETE"
+  | `CONNECT -> "CONNECT"
+  | `OPTIONS -> "OPTIONS"
+  | `TRACE -> "TRACE"
+  | `OTHER s -> Format.sprintf "OTHER (%s)" s )
+  |> Format.fprintf fmt "%s"
 
-  and pp_headers fmt t =
-    let colon fmt _ = Fmt.string fmt ": " in
-    let header_field = Fmt.(pair ~sep:colon string string) in
-    Fmt.vbox Fmt.(list header_field) fmt (Hashtbl.to_seq t |> List.of_seq)
+and pp_headers fmt t =
+  let colon fmt _ = Fmt.string fmt ": " in
+  let header_field = Fmt.(pair ~sep:colon string string) in
+  Fmt.vbox Fmt.(list header_field) fmt (Hashtbl.to_seq t |> List.of_seq)
 
-  let show t =
-    let buf = Buffer.create 0 in
-    let fmt = Format.formatter_of_buffer buf in
-    pp fmt t ; Format.fprintf fmt "%!" ; Buffer.contents buf
+let show_request t =
+  let buf = Buffer.create 0 in
+  let fmt = Format.formatter_of_buffer buf in
+  pp_request fmt t ; Format.fprintf fmt "%!" ; Buffer.contents buf
 
-  let coding = function
-    | "compress" | "x-compress" -> `Compress
-    | "deflate" -> `Deflate
-    | "gzip" | "x-gzip" -> `Gzip
-    | "*" -> `Any
-    | "" -> `None
-    | enc -> `Other enc
+let coding = function
+  | "compress" | "x-compress" -> `Compress
+  | "deflate" -> `Deflate
+  | "gzip" | "x-gzip" -> `Gzip
+  | "*" -> `Any
+  | "" -> `None
+  | enc -> `Other enc
 
-  let accept_encoding t =
-    let open Reparse.String in
-    let open Make_common (Reparse.String) in
-    let weight =
-      let qvalue1 =
-        char '0' *> optional (char '.' *> take ~up_to:3 digit)
-        >>= function
-        | Some l -> string_of_chars ('0' :: '.' :: l) >>| float_of_string
-        | None -> return 0. in
-      let qvalue2 =
-        char '1' *> optional (char '.' *> take ~up_to:3 (char '0'))
-        >>= function
-        | Some l -> string_of_chars ('1' :: '.' :: l) >>| float_of_string
-        | None -> return 1. in
-      let qvalue = qvalue1 <|> qvalue2 in
-      ows *> char ';' *> ows *> string_ci "q=" *> qvalue in
-    let p =
-      let content_coding = token in
-      let codings =
-        content_coding <|> string_ci "identity" <|> string_cs "*" >>| coding
-      in
-      take
-        ((codings, optional weight) <$$> fun encoder weight -> {encoder; weight})
-    in
-    match Hashtbl.find_opt t.headers C.accept_encoding with
-    | Some enc ->
-        if String.(trim enc |> length) = 0 then
-          Ok [{encoder= `None; weight= None}]
-        else Reparse.String.(parse (create_input_from_string enc) p)
-    | None -> Ok []
+let accept_encoding t =
+  let open Reparse.String in
+  let open Make_common (Reparse.String) in
+  let weight =
+    let qvalue1 =
+      char '0' *> optional (char '.' *> take ~up_to:3 digit)
+      >>= function
+      | Some l -> string_of_chars ('0' :: '.' :: l) >>| float_of_string
+      | None -> return 0. in
+    let qvalue2 =
+      char '1' *> optional (char '.' *> take ~up_to:3 (char '0'))
+      >>= function
+      | Some l -> string_of_chars ('1' :: '.' :: l) >>| float_of_string
+      | None -> return 1. in
+    let qvalue = qvalue1 <|> qvalue2 in
+    ows *> char ';' *> ows *> string_ci "q=" *> qvalue in
+  let p =
+    let content_coding = token in
+    let codings =
+      content_coding <|> string_ci "identity" <|> string_cs "*" >>| coding in
+    take
+      ((codings, optional weight) <$$> fun encoder weight -> {encoder; weight})
+  in
+  match Hashtbl.find_opt t.headers C.accept_encoding with
+  | Some enc ->
+      if String.(trim enc |> length) = 0 then Ok [{encoder= `None; weight= None}]
+      else Reparse.String.(parse (create_input_from_string enc) p)
+  | None -> Ok []
 
-  let content_encoding t =
-    match Hashtbl.find_opt t.headers C.accept_encoding with
-    | Some enc ->
-        String.split_on_char ',' enc
-        |> List.map (fun enc -> String.trim enc |> coding)
-    | None -> []
+let content_encoding t =
+  match Hashtbl.find_opt t.headers C.accept_encoding with
+  | Some enc ->
+      String.split_on_char ',' enc
+      |> List.map (fun enc -> String.trim enc |> coding)
+  | None -> []
 
-  open Reparse_lwt_unix.Fd
-  open Make_common (Reparse_lwt_unix.Fd)
+open Reparse_lwt_unix.Fd
+open Make_common (Reparse_lwt_unix.Fd)
 
-  (*-- request-line = method SP request-target SP HTTP-version CRLF -- *)
-  let request_line =
-    let* meth = token <* space in
-    let* request_target =
-      take_while ~while_:(is_not space) unsafe_any_char
-      >>= string_of_chars
-      <* space
-    in
-    let* http_version =
-      (*-- https://datatracker.ietf.org/doc/html/rfc7230#section-2.6 --*)
-      (string_cs "HTTP/" *> digit <* char '.', digit)
-      <$$> pair
-      <* crlf
-      >>= fun (major, minor) ->
-      if Char.equal major '1' && Char.equal minor '1' then return (1, 1)
-      else Format.sprintf "Invalid HTTP version: (%c,%c)" major minor |> fail
-    in
-    trim_input_buffer *> return (meth, request_target, http_version)
+(*-- request-line = method SP request-target SP HTTP-version CRLF -- *)
+let request_line =
+  let* meth = token <* space in
+  let* request_target =
+    take_while ~while_:(is_not space) unsafe_any_char
+    >>= string_of_chars
+    <* space
+  in
+  let* http_version =
+    (*-- https://datatracker.ietf.org/doc/html/rfc7230#section-2.6 --*)
+    (string_cs "HTTP/" *> digit <* char '.', digit)
+    <$$> pair
+    <* crlf
+    >>= fun (major, minor) ->
+    if Char.equal major '1' && Char.equal minor '1' then return (1, 1)
+    else Format.sprintf "Invalid HTTP version: (%c,%c)" major minor |> fail
+  in
+  trim_input_buffer *> return (meth, request_target, http_version)
 
-  let request_meta = (request_line, header_fields) <$$> pair <* crlf
+let request_meta = (request_line, header_fields) <$$> pair <* crlf
 
-  let rec t (client_addr : Lwt_unix.sockaddr) fd =
-    let input = Reparse_lwt_unix.Fd.create_input fd in
-    Lwt_result.(
-      parse input request_meta
-      >|= fun (request_line, headers) ->
-      let meth, request_target, http_version = request_line in
-      let meth = parse_meth meth in
-      { meth
-      ; request_target
-      ; http_version
-      ; headers= List.to_seq headers |> Hashtbl.of_seq
-      ; client_addr })
+let rec create_request (client_addr : Lwt_unix.sockaddr) fd =
+  let input = Reparse_lwt_unix.Fd.create_input fd in
+  Lwt_result.(
+    parse input request_meta
+    >|= fun (request_line, headers) ->
+    let meth, request_target, http_version = request_line in
+    let meth = parse_meth meth in
+    { meth
+    ; request_target
+    ; http_version
+    ; headers= List.to_seq headers |> Hashtbl.of_seq
+    ; client_addr })
 
-  and parse_meth meth =
-    String.uppercase_ascii meth
-    |> function
-    | "GET" -> `GET
-    | "HEAD" -> `HEAD
-    | "POST" -> `POST
-    | "PUT" -> `PUT
-    | "DELETE" -> `DELETE
-    | "CONNECT" -> `CONNECT
-    | "OPTIONS" -> `OPTIONS
-    | "TRACE" -> `TRACE
-    | header -> `OTHER header
-end
+and parse_meth meth =
+  String.uppercase_ascii meth
+  |> function
+  | "GET" -> `GET
+  | "HEAD" -> `HEAD
+  | "POST" -> `POST
+  | "PUT" -> `PUT
+  | "DELETE" -> `DELETE
+  | "CONNECT" -> `CONNECT
+  | "OPTIONS" -> `OPTIONS
+  | "TRACE" -> `TRACE
+  | header -> `OTHER header
 
 let rec pp_encoding fmt t =
   let fields =
@@ -274,14 +270,14 @@ type 'a handler = context -> 'a Lwt.t
 
 and context =
   { conn: Lwt_unix.file_descr
-  ; mutable request: Request.t
+  ; mutable request: request
   ; mutable response_headers: header list }
 
 let request ctx = ctx.request
 
 (**-- Processing body --*)
 
-let is_chunked (req : Request.t) =
+let is_chunked (req : request) =
   match Hashtbl.find_opt req.headers C.transfer_encoding with
   | Some encoding -> (
       _debug (fun k -> k "[is_chunked] encoding: %s" encoding) ;
@@ -513,10 +509,10 @@ let write_status conn status_code reason_phrase =
 
 let rec handle_requests request_handler client_addr conn =
   _debug (fun k -> k "Waiting for new request ...\n%!") ;
-  Request.t client_addr conn
+  create_request client_addr conn
   >>= function
   | Ok req -> (
-      _debug (fun k -> k "%s\n%!" (Request.show req)) ;
+      _debug (fun k -> k "%s\n%!" (show_request req)) ;
       Lwt.catch
         (fun () ->
           let context = {conn; request= req; response_headers= []} in
