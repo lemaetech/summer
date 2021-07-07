@@ -22,6 +22,6 @@ let () =
           Lwt.return () )
         context
       >>= fun () ->
-      let buf = Cstruct.to_bigarray !buf in
+      let content = Cstruct.to_bigarray !buf in
       Summer.respond_with_bigstring ~status_code:200 ~reason_phrase:"OK"
-        ~content_type:"text/plain" buf context )
+        ~content_type:"text/plain" content context )
