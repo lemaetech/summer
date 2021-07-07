@@ -28,9 +28,11 @@
   lwt
   (reparse
    (>= 3.0.0))
-  (reparse-lwt
-   (>= 3.0.0))
   (reparse-lwt-unix
    (>= 3.0.0))
+  (bigstringaf
+   (>= 0.7.0))
+  (decompress
+   (>= 1.4.1))
   (ppx_expect :with-test)
   (ppx_deriving :with-test)))

@@ -29,44 +29,50 @@ let _debug k =
 type chunk_extension = {name: string; value: string option}
 type header = string * string (* (name,value) *)
 
-module Parser = Reparse_lwt_unix.Fd
-open Parser
+type error = string
 
-let pair a b = (a, b)
+(* module Parser = Reparse_lwt_unix.Fd *)
+(* open Parser *)
 
-let _peek_dbg n =
-  let+ s = peek_string n in
-  _debug (fun k -> k "peek: %s\n%!" s)
+module Make_common (P : Reparse.PARSER) = struct
+  open P
 
-(*-- https://datatracker.ietf.org/doc/html/rfc7230#appendix-B --*)
-let tchar =
-  char_if (function
-    | '!' | '#' | '$' | '%' | '&' | '\'' | '*' | '+' | '-' | '.' | '^' | '_'
-     |'`' | '|' | '~' ->
-        true
-    | _ -> false )
-  <|> digit
-  <|> alpha
+  let pair a b = (a, b)
 
-let token = take ~at_least:1 tchar >>= string_of_chars
-let ows = skip (space <|> htab) *> unit
+  let _peek_dbg n =
+    let+ s = peek_string n in
+    _debug (fun k -> k "peek: %s\n%!" s)
 
-(*-- https://datatracker.ietf.org/doc/html/rfc7230#section-3.2 --*)
-let header_fields =
-  let header_field =
-    let* field_name = token <* char ':' <* ows in
-    let+ field_value =
-      let field_content =
-        let c2 =
-          optional
-            (let* c1 = skip ~at_least:1 (space <|> htab) *> vchar in
-             string_of_chars [' '; c1])
-          >>| function Some s -> s | None -> "" in
-        (vchar, c2) <$$> fun c1 c2 -> Format.sprintf "%c%s" c1 c2 in
-      take field_content >>| String.concat "" <* crlf <* trim_input_buffer
-    in
-    (field_name, field_value) in
-  take header_field
+  (*-- https://datatracker.ietf.org/doc/html/rfc7230#appendix-B --*)
+  let tchar =
+    char_if (function
+      | '!' | '#' | '$' | '%' | '&' | '\'' | '*' | '+' | '-' | '.' | '^' | '_'
+       |'`' | '|' | '~' ->
+          true
+      | _ -> false )
+    <|> digit
+    <|> alpha
+
+  let token = take ~at_least:1 tchar >>= string_of_chars
+  let ows = skip (space <|> htab) *> unit
+
+  (*-- https://datatracker.ietf.org/doc/html/rfc7230#section-3.2 --*)
+  let header_fields =
+    let header_field =
+      let* field_name = token <* char ':' <* ows in
+      let+ field_value =
+        let field_content =
+          let c2 =
+            optional
+              (let* c1 = skip ~at_least:1 (space <|> htab) *> vchar in
+               string_of_chars [' '; c1])
+            >>| function Some s -> s | None -> "" in
+          (vchar, c2) <$$> fun c1 c2 -> Format.sprintf "%c%s" c1 c2 in
+        take field_content >>| String.concat "" <* crlf <* trim_input_buffer
+      in
+      (field_name, field_value) in
+    take header_field
+end
 
 module Option = struct
   include Option
@@ -79,7 +85,14 @@ module C = struct
   let trailer = "Trailer"
   let content_length = "Content-Length"
   let chunked = "chunked"
+  let accept_encoding = "Accept-Encoding"
+  let content_encoding = "Content-Encoding" [@@warning "-32"]
 end
+
+type encoding = {encoder: encoder; weight: float option}
+
+and encoder =
+  [`Compress | `Deflate | `Gzip | `Br | `Any | `None | `Other of string]
 
 module Request = struct
   type t =
@@ -142,6 +155,55 @@ module Request = struct
     let fmt = Format.formatter_of_buffer buf in
     pp fmt t ; Format.fprintf fmt "%!" ; Buffer.contents buf
 
+  let coding = function
+    | "compress" | "x-compress" -> `Compress
+    | "deflate" -> `Deflate
+    | "gzip" | "x-gzip" -> `Gzip
+    | "*" -> `Any
+    | "" -> `None
+    | enc -> `Other enc
+
+  let accept_encoding t =
+    let open Reparse.String in
+    let open Make_common (Reparse.String) in
+    let weight =
+      let qvalue1 =
+        char '0' *> optional (char '.' *> take ~up_to:3 digit)
+        >>= function
+        | Some l -> string_of_chars ('0' :: '.' :: l) >>| float_of_string
+        | None -> return 0. in
+      let qvalue2 =
+        char '1' *> optional (char '.' *> take ~up_to:3 (char '0'))
+        >>= function
+        | Some l -> string_of_chars ('1' :: '.' :: l) >>| float_of_string
+        | None -> return 1. in
+      let qvalue = qvalue1 <|> qvalue2 in
+      ows *> char ';' *> ows *> string_ci "q=" *> qvalue in
+    let p =
+      let content_coding = token in
+      let codings =
+        content_coding <|> string_ci "identity" <|> string_cs "*" >>| coding
+      in
+      take
+        ((codings, optional weight) <$$> fun encoder weight -> {encoder; weight})
+    in
+    match List.assoc_opt C.accept_encoding t.headers with
+    | Some enc ->
+        if String.(trim enc |> length) = 0 then
+          Ok [{encoder= `None; weight= None}]
+        else Reparse.String.(parse (create_input_from_string enc) p)
+    | None -> Ok []
+
+  let content_encoding t =
+    match List.assoc_opt C.content_encoding t.headers with
+    | Some enc ->
+        String.split_on_char ',' enc
+        |> List.map (fun enc -> String.trim enc |> coding)
+    | None -> []
+
+  open Reparse_lwt_unix.Fd
+  open Make_common (Reparse_lwt_unix.Fd)
+
   (*-- request-line = method SP request-target SP HTTP-version CRLF -- *)
   let request_line =
     let* meth = token <* space in
@@ -166,7 +228,7 @@ module Request = struct
   let rec t (client_addr : Lwt_unix.sockaddr) fd =
     let input = Reparse_lwt_unix.Fd.create_input fd in
     Lwt_result.(
-      Parser.(parse input request_meta)
+      parse input request_meta
       >|= fun (request_line, headers) ->
       let meth, request_target, http_version = request_line in
       let meth = parse_meth meth in
@@ -186,18 +248,40 @@ module Request = struct
     | header -> `OTHER header
 end
 
+let rec pp_encoding fmt t =
+  let fields =
+    [ Fmt.field "name" (fun p -> p.encoder) pp_encoder
+    ; Fmt.field "weight" (fun p -> p.weight) Fmt.(option float) ] in
+  Fmt.record fields fmt t
+
+and pp_encoder fmt coding =
+  ( match coding with
+  | `Compress -> "compress"
+  | `Deflate -> "deflate"
+  | `Gzip -> "gzip"
+  | `Br -> "br"
+  | `Any -> "*"
+  | `None -> ""
+  | `Other enc -> Format.sprintf "Other (%s)" enc )
+  |> Format.fprintf fmt "%s"
+
 (**-- Processing body --*)
 
 let is_chunked req =
   List.assoc_opt C.transfer_encoding (Request.headers req)
   |> function
-  | Some encoding ->
+  | Some encoding -> (
+      _debug (fun k -> k "[is_chunked] encoding: %s" encoding) ;
       String.split_on_char ',' encoding
       |> List.map String.trim
-      |> fun encodings -> if List.mem C.chunked encodings then true else false
+      |> List.rev
+      |> fun encodings ->
+      try String.equal (List.hd encodings) C.chunked with _ -> false )
   | None -> false
 
 let read_body_chunks ~conn (Request.{headers; _} as req) ~on_chunk =
+  let open Reparse_lwt_unix.Fd in
+  let open Make_common (Reparse_lwt_unix.Fd) in
   let quoted_pair = char '\\' *> (whitespace <|> vchar) in
   (*-- qdtext = HTAB / SP /%x21 / %x23-5B / %x5D-7E / obs-text -- *)
   let qdtext =
@@ -283,8 +367,85 @@ let read_body_chunks ~conn (Request.{headers; _} as req) ~on_chunk =
     ({req with headers} : Request.t) in
   if is_chunked req then
     let input = Reparse_lwt_unix.Fd.create_input conn in
-    chunked_body headers ~on_chunk |> Parser.parse input
+    chunked_body headers ~on_chunk |> parse input
   else Lwt_result.fail "[read_body_chunks] Not a `Chunked request body"
+
+let deflate_decode str =
+  let i = De.bigstring_create De.io_buffer_size in
+  let o = De.bigstring_create De.io_buffer_size in
+  let w = De.make_window ~bits:15 in
+  let r = Buffer.create 0x1000 in
+  let p = ref 0 in
+  let refill buf =
+    let len = min (Bigstringaf.length str - !p) De.io_buffer_size in
+    Bigstringaf.blit str ~src_off:!p buf ~dst_off:0 ~len ;
+    p := !p + len ;
+    len in
+  let flush buf len =
+    let str = Bigstringaf.substring buf ~off:0 ~len in
+    Buffer.add_string r str in
+  match De.Higher.uncompress ~w ~refill ~flush i o with
+  | Ok () -> Ok (Buffer.contents r)
+  | Error (`Msg s) -> Error s
+
+let deflate_encode str =
+  let i = De.bigstring_create De.io_buffer_size in
+  let o = De.bigstring_create De.io_buffer_size in
+  let w = De.Lz77.make_window ~bits:15 in
+  let q = De.Queue.create 0x1000 in
+  let r = Buffer.create 0x1000 in
+  let p = ref 0 in
+  let refill buf =
+    let len = min (Bigstringaf.length str - !p) De.io_buffer_size in
+    Bigstringaf.blit str ~src_off:!p buf ~dst_off:0 ~len ;
+    p := !p + len ;
+    len in
+  let flush buf len =
+    let str = Bigstringaf.substring buf ~off:0 ~len in
+    Buffer.add_string r str in
+  De.Higher.compress ~w ~q ~refill ~flush i o ;
+  Buffer.contents r
+
+let gzip_decode (str : Bigstringaf.t) =
+  let i = De.bigstring_create De.io_buffer_size in
+  let o = De.bigstring_create De.io_buffer_size in
+  let r = Buffer.create 0x1000 in
+  let p = ref 0 in
+  let refill buf =
+    let len = min (Bigstringaf.length str - !p) De.io_buffer_size in
+    Bigstringaf.blit str ~src_off:!p buf ~dst_off:0 ~len ;
+    p := !p + len ;
+    len in
+  let flush buf len =
+    let str = Bigstringaf.substring buf ~off:0 ~len in
+    Buffer.add_string r str in
+  match Gz.Higher.uncompress ~refill ~flush i o with
+  | Ok (_ : Gz.Higher.metadata) -> Ok (Buffer.contents r)
+  | Error (`Msg err) -> Error err
+
+let time () = Int32.of_float (Unix.gettimeofday ())
+
+let gzip_encode ?(level = 4) (str : Bigstringaf.t) =
+  let i = De.bigstring_create De.io_buffer_size in
+  let o = De.bigstring_create De.io_buffer_size in
+  let w = De.Lz77.make_window ~bits:15 in
+  let q = De.Queue.create 0x1000 in
+  let r = Buffer.create 0x1000 in
+  let p = ref 0 in
+  let cfg = Gz.Higher.configuration Gz.Unix time in
+  let refill buf =
+    let len = min (Bigstringaf.length str - !p) De.io_buffer_size in
+    Bigstringaf.blit str ~src_off:!p buf ~dst_off:0 ~len ;
+    p := !p + len ;
+    len in
+  let flush buf len =
+    let str = Bigstringaf.substring buf ~off:0 ~len in
+    Buffer.add_string r str in
+  Gz.Higher.compress ~w ~q ~level ~refill ~flush () cfg i o ;
+  Buffer.contents r
+
+let supported_encodings : encoding list =
+  [{encoder= `Gzip; weight= Some 1.0}; {encoder= `Deflate; weight= Some 0.0}]
 
 let read_body_content ~conn req =
   List.assoc_opt "Content-Length" (Request.headers req)
