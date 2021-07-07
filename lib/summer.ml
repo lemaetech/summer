@@ -113,7 +113,7 @@ module Request = struct
     | `OTHER of string ]
 
   let meth t = t.meth
-  let request_target t = t.request_target
+  let target t = t.request_target
   let http_version t = t.http_version
   let headers t = Hashtbl.to_seq t.headers |> List.of_seq
   let client_addr t = t.client_addr

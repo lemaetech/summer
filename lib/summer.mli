@@ -60,7 +60,7 @@ module Request : sig
     | `OTHER of string ]
 
   val meth : t -> meth
-  val request_target : t -> string
+  val target : t -> string
   val http_version : t -> int * int
   val headers : t -> header list
   val client_addr : t -> Lwt_unix.sockaddr
