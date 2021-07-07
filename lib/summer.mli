@@ -74,7 +74,7 @@ module Request : sig
   val show : t -> string
 end
 
-(** [context] holds data for [handler] fuction. *)
+(** [context] holds data for [handler] function. *)
 type context
 
 (** ['a handler] represents a connection handler. *)
