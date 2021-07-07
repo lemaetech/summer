@@ -471,8 +471,8 @@ type bigstring = Lwt_bytes.t
 open Lwt.Infix
 module IO_vector = Lwt_unix.IO_vectors
 
-let respond_with_bigstring ~conn ~(status_code : int) ~(reason_phrase : string)
-    ~(content_type : string) (body : bigstring) =
+let respond_with_bigstring ~(status_code : int) ~(reason_phrase : string)
+    ~(content_type : string) (body : bigstring) ~conn (_req : Request.t) =
   let iov = IO_vector.create () in
   let status_line =
     Format.sprintf "HTTP/1.1 %d %s\r\n" status_code reason_phrase

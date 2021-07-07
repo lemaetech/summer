@@ -22,4 +22,4 @@ let () =
       >>= fun (_req : Summer.Request.t) ->
       let buf = Cstruct.to_bigarray !buf in
       Summer.respond_with_bigstring ~conn ~status_code:200 ~reason_phrase:"OK"
-        ~content_type:"text/plain" buf )
+        ~content_type:"text/plain" buf req )

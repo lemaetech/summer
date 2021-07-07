@@ -103,12 +103,11 @@ val read_body_content : bigstring handler
 (** {2 Response} *)
 
 val respond_with_bigstring :
-     conn:Lwt_unix.file_descr
-  -> status_code:int
+     status_code:int
   -> reason_phrase:string
   -> content_type:string
   -> bigstring
-  -> unit Lwt.t
+  -> unit handler
 
 (** {2 HTTP server} *)
 
