@@ -191,7 +191,9 @@ let accept_encoding t =
   match Hashtbl.find_opt t.headers C.accept_encoding with
   | Some enc ->
       if String.(trim enc |> length) = 0 then Ok [{encoder= `None; weight= None}]
-      else Reparse.String.(parse (create_input_from_string enc) p)
+      else
+        Reparse.String.(parse (create_input_from_string enc) p)
+        |> Result.map (fun (x, _) -> x)
   | None -> Ok []
 
 let content_encoding t =
@@ -233,7 +235,7 @@ let rec create_request (client_addr : Lwt_unix.sockaddr) fd =
   let input = Reparse_lwt_unix.Fd.create_input fd in
   Lwt_result.(
     parse input request_meta
-    >|= fun (request_line, headers) ->
+    >|= fun ((request_line, headers), _) ->
     let meth, request_target, http_version = request_line in
     let meth = parse_meth meth in
     { meth
@@ -382,7 +384,8 @@ let read_body_chunks ~on_chunk context =
     let p = chunked_body req.headers ~on_chunk in
     let input = Reparse_lwt_unix.Fd.create_input context.conn in
     Lwt.(
-      parse input p >>= function Ok () -> return () | Error e -> fail_with e)
+      parse input p
+      >>= function Ok ((), _) -> return () | Error e -> fail_with e)
   else Lwt.fail_with "[read_body_chunks] Not a `Chunked request body"
 
 let deflate_decode str =
