@@ -477,6 +477,8 @@ let read_body_content context =
   | None ->
       Lwt.fail_with "[read_body_content] 'Content-Length' header not found"
 
+let read_body_chunkstream = read_body_chunks
+
 open Lwt.Infix
 module IO_vector = Lwt_unix.IO_vectors
 

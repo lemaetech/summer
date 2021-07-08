@@ -97,7 +97,7 @@ val supported_encodings : encoding list
 (** [supported_encodings] returns a list of encoding supported by [Summer]
     HTTP/1.1 web server. The following encodings are supported: [gzip,deflate] *)
 
-val read_body_chunks :
+val read_body_chunkstream :
      on_chunk:(chunk:bigstring -> len:int -> chunk_extension list -> unit Lwt.t)
   -> unit handler
 (** [read_body_chunks] supports reading request body when

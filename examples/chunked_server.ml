@@ -16,7 +16,7 @@ let () =
     ignore "An echo HTTP server using summer!" ;
   Summer.start ~port:!port (fun context ->
       let buf = ref (Cstruct.create 0) in
-      Summer.read_body_chunks
+      Summer.read_body_chunkstream
         ~on_chunk:(fun ~chunk ~len _exts ->
           buf := Cstruct.append !buf (Cstruct.of_bigarray chunk ~len) ;
           Lwt.return () )
