@@ -353,9 +353,6 @@ let read_body_chunks ~on_chunk context =
         if sz > 0 then (
           content_length := !content_length + sz ;
           let* chunk_data' = chunk_data sz in
-          _debug (fun k ->
-              k "[chunked_body] chunk_data: %d\n%!"
-                (Lwt_bytes.length chunk_data') ) ;
           on_chunk ~chunk:chunk_data' ~len:sz exts |> of_promise )
         else (
           continue := false ;
@@ -363,8 +360,6 @@ let read_body_chunks ~on_chunk context =
     >>= fun () ->
     (*-- Add trailer headers if any --*)
     let+ trailer_headers = trailer_part headers <* crlf <* trim_input_buffer in
-    _debug (fun k ->
-        k "[chunked_body] trailer_headers: %d\n%!" (List.length trailer_headers) ) ;
     List.iter
       (fun (key, value) -> Hashtbl.replace headers key value)
       trailer_headers ;
