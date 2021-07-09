@@ -354,11 +354,11 @@ type body_reader =
   ; mutable total_read : int
   }
 
-(* Determine request body type in the order given below:
+(** Determine request body type in the order given below,
 
-   - If [Transfer-Encoding: chunked] is present then [Some `Chunked] - If
-   [Content-Length: len] is present then [Some (`Content len)] - If neither of
-   the above two then [None] *)
+    - If [Transfer-Encoding: chunked] is present then [Some `Chunked]
+    - If [Content-Length: len] is present then [Some (`Content len)]
+    - If neither of the above two then [None] *)
 let body_type context =
   let req = context.request in
   (match Hashtbl.find_opt req.headers C.transfer_encoding with
