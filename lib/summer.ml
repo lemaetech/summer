@@ -100,6 +100,12 @@ module Option = struct
   include Option
 
   let ( >>= ) b f = Option.bind b f [@@warning "-32"]
+
+  let ( >>| ) b f = Option.map f b [@@warning "-32"]
+
+  let ( let* ) = ( >>= ) [@@warning "-32"]
+
+  let ( let+ ) = ( >>| ) [@@warning "-32"]
 end
 
 module C = struct
@@ -361,24 +367,24 @@ type body_reader =
     - If neither of the above two then [None] *)
 let body_type context =
   let req = context.request in
-  (match Hashtbl.find_opt req.headers C.transfer_encoding with
-  | Some encoding -> (
-    String.split_on_char ',' encoding |> List.map String.trim |> List.rev
-    |> fun encodings ->
-    match List.hd encodings with
-    | exception _ -> None
-    | v when String.equal v C.chunked -> Some `Chunked
-    | _ -> None)
-  | None -> None)
-  |> function
-  | Some _ as x -> x
-  | None -> (
-    match Hashtbl.find_opt context.request.headers C.content_length with
-    | Some len -> (
+  Option.(
+    let chunked =
+      let* encoding = Hashtbl.find_opt req.headers C.transfer_encoding in
+      let encodings =
+        String.split_on_char ',' encoding |> List.map String.trim |> List.rev
+      in
+      match List.hd encodings with
+      | exception _ -> None
+      | v when String.equal v C.chunked -> Some `Chunked
+      | _ -> None
+    in
+    if is_none chunked then
+      let* len = Hashtbl.find_opt context.request.headers C.content_length in
       match int_of_string len with
       | exception _ -> None
-      | len -> Some (`Content len))
-    | None -> None)
+      | len -> Some (`Content len)
+    else
+      chunked)
 
 type read_result =
   [ `Body of body
