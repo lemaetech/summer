@@ -365,12 +365,9 @@ let body_type context =
   | Some encoding -> (
     String.split_on_char ',' encoding |> List.map String.trim |> List.rev
     |> fun encodings ->
-    try
-      if String.equal (List.hd encodings) C.chunked then
-        Some `Chunked
-      else
-        None
-    with
+    match List.hd encodings with
+    | exception _ -> None
+    | v when String.equal v C.chunked -> Some `Chunked
     | _ -> None)
   | None -> None)
   |> function
@@ -378,11 +375,9 @@ let body_type context =
   | None -> (
     match Hashtbl.find_opt context.request.headers C.content_length with
     | Some len -> (
-      try
-        let len = int_of_string len in
-        Some (`Content len)
-      with
-      | _ -> None)
+      match int_of_string len with
+      | exception _ -> None
+      | len -> Some (`Content len))
     | None -> None)
 
 type read_result =
