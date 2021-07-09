@@ -244,7 +244,7 @@ let accept_encoding t =
     let qvalue = qvalue1 <|> qvalue2 in
     ows *> char ';' *> ows *> string_ci "q=" *> qvalue
   in
-  let p =
+  let accept_encoding_parser =
     let content_coding = token in
     let codings =
       content_coding <|> string_ci "identity" <|> string_cs "*" >>| coding
@@ -257,7 +257,8 @@ let accept_encoding t =
     if String.(trim enc |> length) = 0 then
       Ok [ { encoder = `None; weight = None } ]
     else
-      Reparse.String.(parse (create_input_from_string enc) p)
+      Reparse.String.(
+        parse (create_input_from_string enc) accept_encoding_parser)
       |> Result.map (fun (x, _) -> x)
   | None -> Ok []
 
