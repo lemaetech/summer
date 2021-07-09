@@ -565,11 +565,13 @@ let read_body reader context =
       return `End
   in
   Lwt.(
-    (match reader.body_type with
-    | Some `Chunked -> chunk_parser reader
-    | Some (`Content len) -> content_length_parser reader len
-    | None -> Reparse_lwt_unix.Fd.return `End)
-    |> Reparse_lwt_unix.Fd.parse ~pos:reader.pos reader.input
+    let parser =
+      match reader.body_type with
+      | Some `Chunked -> chunk_parser reader
+      | Some (`Content len) -> content_length_parser reader len
+      | None -> Reparse_lwt_unix.Fd.return `End
+    in
+    Reparse_lwt_unix.Fd.parse ~pos:reader.pos reader.input parser
     >>= function
     | Ok (x, pos) ->
       reader.pos <- pos;
