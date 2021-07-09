@@ -1,5 +1,6 @@
-version=0.18.0
 profile=conventional
+break-infix-before-func
+break-infix=fit-or-vertical
 break-separators=before
 dock-collection-brackets=false
 break-sequences=true

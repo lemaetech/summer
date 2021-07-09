@@ -67,7 +67,8 @@ module Make_common (P : Reparse.PARSER) = struct
       | '~' ->
         true
       | _ -> false)
-    <|> digit <|> alpha
+    <|> digit
+    <|> alpha
 
   let token = take ~at_least:1 tchar >>= string_of_chars
 
@@ -229,12 +230,14 @@ let accept_encoding t =
   let open Make_common (Reparse.String) in
   let weight =
     let qvalue1 =
-      char '0' *> optional (char '.' *> take ~up_to:3 digit) >>= function
+      char '0' *> optional (char '.' *> take ~up_to:3 digit)
+      >>= function
       | Some l -> string_of_chars ('0' :: '.' :: l) >>| float_of_string
       | None -> return 0.
     in
     let qvalue2 =
-      char '1' *> optional (char '.' *> take ~up_to:3 (char '0')) >>= function
+      char '1' *> optional (char '.' *> take ~up_to:3 (char '0'))
+      >>= function
       | Some l -> string_of_chars ('1' :: '.' :: l) >>| float_of_string
       | None -> return 1.
     in
@@ -272,11 +275,14 @@ let request_line =
   let* meth = token <* space in
   let* request_target =
     take_while ~while_:(is_not space) unsafe_any_char
-    >>= string_of_chars <* space
+    >>= string_of_chars
+    <* space
   in
   let* http_version =
     (*-- https://datatracker.ietf.org/doc/html/rfc7230#section-2.6 --*)
-    (string_cs "HTTP/" *> digit <* char '.', digit) <$$> pair <* crlf
+    (string_cs "HTTP/" *> digit <* char '.', digit)
+    <$$> pair
+    <* crlf
     >>= fun (major, minor) ->
     if Char.equal major '1' && Char.equal minor '1' then
       return (1, 1)
@@ -295,7 +301,8 @@ let rec create_request (client_addr : Lwt_unix.sockaddr) fd =
   let open Make_common (Reparse_lwt_unix.Fd) in
   let input = Reparse_lwt_unix.Fd.create_input fd in
   Lwt_result.(
-    parse input request_meta >|= fun ((request_line, headers), _) ->
+    parse input request_meta
+    >|= fun ((request_line, headers), _) ->
     let meth, request_target, http_version = request_line in
     let meth = parse_meth meth in
     { meth
@@ -306,7 +313,8 @@ let rec create_request (client_addr : Lwt_unix.sockaddr) fd =
     })
 
 and parse_meth meth =
-  String.uppercase_ascii meth |> function
+  String.uppercase_ascii meth
+  |> function
   | "GET" -> `GET
   | "HEAD" -> `HEAD
   | "POST" -> `POST
@@ -410,7 +418,9 @@ let read_body reader context =
     let quoted_pair = char '\\' *> (whitespace <|> vchar) in
     (*-- qdtext = HTAB / SP /%x21 / %x23-5B / %x5D-7E / obs-text -- *)
     let qdtext =
-      htab <|> space <|> char '\x21'
+      htab
+      <|> space
+      <|> char '\x21'
       <|> char_if (function
             | '\x23' .. '\x5B' -> true
             | '\x5D' .. '\x7E' -> true
@@ -428,12 +438,14 @@ let read_body reader context =
       let chunk_ext_name = token in
       let chunk_ext_val = quoted_string <|> token in
       take
-        ( (char ';' *> chunk_ext_name, optional (char '=' *> chunk_ext_val))
-        <$$> fun name value : chunk_extension -> { name; value } )
+        ((char ';' *> chunk_ext_name, optional (char '=' *> chunk_ext_val))
+        <$$> fun name value : chunk_extension -> { name; value })
       <?> "[chunk_ext]"
     in
     let chunk_size =
-      take ~at_least:1 hex_digit >>= string_of_chars >>= fun sz ->
+      take ~at_least:1 hex_digit
+      >>= string_of_chars
+      >>= fun sz ->
       try return (Format.sprintf "0x%s" sz |> int_of_string) with
       | _ -> fail (Format.sprintf "[chunk_size] Invalid chunk_size: %s" sz)
     in
@@ -500,7 +512,8 @@ let read_body reader context =
       in
       let trailer_headers =
         let trailer_specified_headers =
-          Hashtbl.find_opt request_headers C.trailer |> function
+          Hashtbl.find_opt request_headers C.trailer
+          |> function
           | Some v -> String.split_on_char ',' v |> List.map String.trim
           | None -> []
         in
@@ -519,7 +532,8 @@ let read_body reader context =
       (* Remove 'chunked' from Transfer-Encoding header value or remove it
          entirely. *)
       Hashtbl.find request_headers C.transfer_encoding
-      |> String.split_on_char ',' |> List.map String.trim
+      |> String.split_on_char ','
+      |> List.map String.trim
       |> List.filter (fun e -> not (String.equal e C.chunked))
       |> String.concat ","
       |> fun te ->
@@ -686,7 +700,8 @@ let write_status conn status_code reason_phrase =
 
 let rec handle_requests request_handler client_addr conn =
   _debug (fun k -> k "Waiting for new request ...\n%!");
-  create_request client_addr conn >>= function
+  create_request client_addr conn
+  >>= function
   | Ok req -> (
     _debug (fun k -> k "%s\n%!" (show_request req));
     Lwt.catch
