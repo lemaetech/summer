@@ -120,24 +120,37 @@ val gzip_encode : ?level:int -> bigstring -> string
 val supported_encodings : encoding list
 
 (** {2 Request Body Reader} *)
+
+(** Represents a request body reader *)
 type body_reader
 
-type body =
+(** Represents a value returned by {!val:read_body}. *)
+type read_result =
+  [ `Body of body
+  | `End
+  | `Error of string
+  ]
+
+(** Represents a chunk of data read by {!type:body_reader}. *)
+and body =
   { data : bigstring
   ; size : int
   ; chunk_extensions : chunk_extension list
   }
 
+(** [body_reader context] returns a body_reader. *)
 val body_reader : context -> body_reader
 
 (** [read_body rdr] reads request body.
 
-    If the request contains [Transfer-Encoding] header then each [`Body body]
-    represents a request body 'chunk' with [body.chunk_extension] representing
-    any chunk extensions present in the request chunk and [body.size]
-    representing the chunk size. *)
-val read_body :
-  body_reader -> context -> [ `Body of body | `End | `Error of string ] Lwt.t
+    If [Transfer-Encoding] header is present then each [`Body body] represents a
+    request body 'chunk'. [body.chunk_extension] represents any chunk extensions
+    present in the request chunk and [body.size] represents the chunk size.
+
+    If [Content-Length] header is present then [`Body body] represents the
+    content body. [body.chunk_extension] is [List.empty] and [body.size]
+    represents the [Content-Length] value. *)
+val read_body : body_reader -> context -> read_result Lwt.t
 
 (** {2 Response} *)
 

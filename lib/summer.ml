@@ -385,7 +385,13 @@ let body_type context =
       | _ -> None)
     | None -> None)
 
-type body =
+type read_result =
+  [ `Body of body
+  | `End
+  | `Error of string
+  ]
+
+and body =
   { data : bigstring
   ; size : int
   ; chunk_extensions : chunk_extension list
