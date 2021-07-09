@@ -21,11 +21,17 @@ type error = string
 
 (** [chunk_extension] is an optional component of a chunk. It is defined at
     https://datatracker.ietf.org/doc/html/rfc7230#section-4.1.1 *)
-type chunk_extension = {name: string; value: string option}
+type chunk_extension =
+  { name : string
+  ; value : string option
+  }
 
 (** [accept_encoding] represents [Accept-Encoding] and [Content-Encoding] header
     values. https://datatracker.ietf.org/doc/html/rfc7231#section-5.3.4 *)
-type encoding = {encoder: encoder; weight: float option}
+type encoding =
+  { encoder : encoder
+  ; weight : float option
+  }
 
 and encoder =
   [ `Compress
@@ -43,7 +49,8 @@ and encoder =
     (** Represented by empty ("Accept-Encoding: ") encoding header value. *)
   | `Other of string
     (** Any other encoding - possibly a custom one - not specified by the HTTP
-        RFC 7230 or 7231 or 7932. *) ]
+        RFC 7230 or 7231 or 7932. *)
+  ]
 
 (** {2 Request} *)
 
@@ -59,18 +66,29 @@ type meth =
   | `CONNECT
   | `OPTIONS
   | `TRACE
-  | `OTHER of string ]
+  | `OTHER of string
+  ]
 
 val meth : request -> meth
+
 val target : request -> string
+
 val http_version : request -> int * int
+
 val headers : request -> header list
+
 val client_addr : request -> Lwt_unix.sockaddr
+
 val accept_encoding : request -> (encoding list, error) result
+
 val content_encoding : request -> encoder list
+
 val add_header : header -> request -> unit
+
 val remove_header : string -> request -> unit
+
 val pp_request : Format.formatter -> request -> unit
+
 val show_request : request -> string
 
 (** {2 Handler} *)
@@ -83,29 +101,43 @@ and context
 
 val request : context -> request
 
-(** {2 [deflate] content encoding, decoding *)
+val conn : context -> Lwt_unix.file_descr
+
+(** {2 deflate content encoding, decoding} *)
 
 val deflate_decode : bigstring -> (string, error) result
+
 val deflate_encode : bigstring -> string
 
-(** {2 [gzip] content encoding, decoding *)
+(** {2 gzip content encoding, decoding} *)
 
 val gzip_decode : bigstring -> (string, error) result
+
 val gzip_encode : ?level:int -> bigstring -> string
 
-val supported_encodings : encoding list
 (** [supported_encodings] returns a list of encoding supported by [Summer]
     HTTP/1.1 web server. The following encodings are supported: [gzip,deflate] *)
+val supported_encodings : encoding list
 
-val read_body_chunkstream :
-     on_chunk:(chunk:bigstring -> len:int -> chunk_extension list -> unit Lwt.t)
-  -> unit handler
-(** [read_body_chunks] supports reading request body when
-    [Transfer-Encoding: chunked] is present in the request headers. *)
+(** {2 Request Body Reader} *)
+type body_reader
 
-val read_body_content : bigstring handler
-(** [read_body_content] reads and returns request body content as bigstring when
-    [Content-Length] header is present in request. *)
+type body =
+  { data : bigstring
+  ; size : int
+  ; chunk_extensions : chunk_extension list
+  }
+
+val body_reader : context -> body_reader
+
+(** [read_body rdr] reads request body.
+
+    If the request contains [Transfer-Encoding] header then each [`Body body]
+    represents a request body 'chunk' with [body.chunk_extension] representing
+    any chunk extensions present in the request chunk and [body.size]
+    representing the chunk size. *)
+val read_body :
+  body_reader -> context -> [ `Body of body | `End | `Error of string ] Lwt.t
 
 (** {2 Response} *)
 
@@ -118,10 +150,11 @@ val respond_with_bigstring :
 
 (** {2 HTTP server} *)
 
-val start : port:int -> unit handler -> unit
 (** [start port request_handler] Starts HTTP/1.1 server at [port]. *)
+val start : port:int -> unit handler -> unit
 
 (** {2 Pretty printers} *)
 
 val pp_encoder : Format.formatter -> encoder -> unit
+
 val pp_encoding : Format.formatter -> encoding -> unit
