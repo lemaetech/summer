@@ -34,5 +34,7 @@
    (>= 0.7.0))
   (decompress
    (>= 1.4.1))
+  (http-multipart-formdata
+   (>= 2.0.1))
   (ppx_expect :with-test)
   (ppx_deriving :with-test)))

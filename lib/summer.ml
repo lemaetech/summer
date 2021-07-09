@@ -396,12 +396,14 @@ let body_type context =
       chunked)
 
 type read_result =
-  [ `Body of body
+  [ `Body of bigstring * int
+  | `Chunk of chunk_body
+  | `Multipart of Http_multipart_formdata.Part_header.t * bigstring
   | `End
   | `Error of string
   ]
 
-and body =
+and chunk_body =
   { data : bigstring
   ; size : int
   ; chunk_extensions : chunk_extension list
@@ -460,7 +462,7 @@ let read_body reader context =
         Cstruct.to_bigarray buf
       in
       reader.total_read <- reader.total_read + size;
-      `Body { data = chunk_data; size; chunk_extensions }
+      `Chunk { data = chunk_data; size; chunk_extensions }
     ) else if size = 0 then (
       (* If chunk size is 0 then read the chunk trailers and update the context
          request.
@@ -560,7 +562,7 @@ let read_body reader context =
       let+ buf = unsafe_take_cstruct len <* trim_input_buffer in
       let size = Cstruct.len buf in
       reader.total_read <- reader.total_read + size;
-      `Body { data = Cstruct.to_bigarray buf; size; chunk_extensions = [] }
+      `Body (Cstruct.to_bigarray buf, size)
     ) else
       return `End
   in

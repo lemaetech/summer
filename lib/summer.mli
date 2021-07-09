@@ -19,13 +19,6 @@ type bigstring =
 (** [error] represents an error string *)
 type error = string
 
-(** [chunk_extension] is an optional component of a chunk. It is defined at
-    https://datatracker.ietf.org/doc/html/rfc7230#section-4.1.1 *)
-type chunk_extension =
-  { name : string
-  ; value : string option
-  }
-
 (** [accept_encoding] represents [Accept-Encoding] and [Content-Encoding] header
     values. https://datatracker.ietf.org/doc/html/rfc7231#section-5.3.4 *)
 type encoding =
@@ -126,16 +119,25 @@ type body_reader
 
 (** Represents a value returned by {!val:read_body}. *)
 type read_result =
-  [ `Body of body
+  [ `Body of bigstring * int
+  | `Chunk of chunk_body
+  | `Multipart of Http_multipart_formdata.Part_header.t * bigstring
   | `End
   | `Error of string
   ]
 
 (** Represents a chunk of data read by {!type:body_reader}. *)
-and body =
+and chunk_body =
   { data : bigstring
   ; size : int
   ; chunk_extensions : chunk_extension list
+  }
+
+(** [chunk_extension] is an optional component of a chunk. It is defined at
+    https://datatracker.ietf.org/doc/html/rfc7230#section-4.1.1 *)
+and chunk_extension =
+  { name : string
+  ; value : string option
   }
 
 (** [body_reader context] returns a body_reader. *)
