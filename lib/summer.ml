@@ -320,7 +320,9 @@ and pp_encoder fmt coding =
 type 'a handler = context -> 'a Lwt.t
 
 and context =
-  {conn: Lwt_unix.file_descr; request: request; response_headers: header list}
+  { conn: Lwt_unix.file_descr
+  ; request: request
+  ; response_headers: (string, string) Hashtbl.t }
 
 let request ctx = ctx.request
 
@@ -330,7 +332,6 @@ let conn ctx = ctx.conn
 
 type body_reader =
   { input: Reparse_lwt_unix.Fd.input
-  ; body_type: body_type
   ; mutable pos: Reparse_lwt_unix.Fd.pos
   ; mutable total_read: int }
 
@@ -409,11 +410,9 @@ and chunk_body =
 
 let body_reader context =
   let input = Reparse_lwt_unix.Fd.create_input context.conn in
-  Result.(
-    body_type context
-    >>| fun body_type -> {body_type; input; pos= 0; total_read= 0})
+  {input; pos= 0; total_read= 0}
 
-let read_body reader context =
+let read_chunked reader context =
   let chunk_parser reader =
     let open Reparse_lwt_unix.Fd in
     let open Make_common (Reparse_lwt_unix.Fd) in
@@ -525,25 +524,26 @@ let read_body reader context =
       `End )
     else fail (Format.sprintf "Invalid chunk size: %d" size)
   in
-  let content_length_parser reader len =
-    let open Reparse_lwt_unix.Fd in
-    if reader.total_read < len then (
-      let len = len - reader.total_read in
+  Lwt.(
+    Reparse_lwt_unix.Fd.parse ~pos:reader.pos reader.input (chunk_parser reader)
+    >>= function
+    | Ok (x, pos) ->
+        reader.pos <- pos ;
+        return x
+    | Error e -> return (`Error e))
+
+let read_content content_length reader _context =
+  let open Reparse_lwt_unix.Fd in
+  let content_parser reader content_length =
+    if reader.total_read < content_length then (
+      let len = content_length - reader.total_read in
       let+ buf = unsafe_take_cstruct len <* trim_input_buffer in
-      let size = Cstruct.len buf in
-      reader.total_read <- reader.total_read + size ;
-      `Body (Cstruct.to_bigarray buf, size) )
+      reader.total_read <- reader.total_read + len ;
+      `Body buf )
     else return `End
   in
   Lwt.(
-    let parser =
-      match reader.body_type with
-      | `Chunked -> chunk_parser reader
-      | `Content len -> content_length_parser reader len
-      | `Multipart _boundary -> failwith ""
-      | `None -> Reparse_lwt_unix.Fd.return `End
-    in
-    Reparse_lwt_unix.Fd.parse ~pos:reader.pos reader.input parser
+    parse ~pos:reader.pos reader.input (content_parser reader content_length)
     >>= function
     | Ok (x, pos) ->
         reader.pos <- pos ;
@@ -679,7 +679,9 @@ let rec handle_requests request_handler client_addr conn =
       _debug (fun k -> k "%s\n%!" (show_request req)) ;
       Lwt.catch
         (fun () ->
-          let context = {conn; request= req; response_headers= []} in
+          let context =
+            {conn; request= req; response_headers= Hashtbl.create 0}
+          in
           request_handler context )
         (fun exn ->
           _debug (fun k -> k "Unhandled exception: %s" (Printexc.to_string exn)) ;

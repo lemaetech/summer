@@ -107,13 +107,20 @@ val supported_encodings : encoding list
 (** [supported_encodings] returns a list of encoding supported by [Summer]
     HTTP/1.1 web server. The following encodings are supported: [gzip,deflate] *)
 
-(** {2 Request Body Reader} *)
+(** {2 Request Body Readers} *)
 
 (** Represents a request body reader *)
 type body_reader
 
+and body_type =
+  [`Chunked | `Content of content_length | `Multipart of boundary | `None]
+
+and content_length = int
+
+and boundary = Http_multipart_formdata.boundary
+
 (** Represents a value returned by {!val:read_body}. *)
-type read_result =
+and read_result =
   [ `Body of bigstring * int
   | `Chunk of chunk_body
   | `Multipart of multipart_read_result
@@ -131,10 +138,15 @@ and chunk_body =
     https://datatracker.ietf.org/doc/html/rfc7230#section-4.1.1 *)
 and chunk_extension = {name: string; value: string option}
 
-val body_reader : context -> (body_reader, error) result
+val body_type : context -> (body_type, error) result
+
+val body_reader : context -> body_reader
 (** [body_reader context] returns a body_reader. *)
 
-val read_body : body_reader -> context -> read_result Lwt.t
+val read_chunked :
+     body_reader
+  -> context
+  -> [`Chunk of chunk_body | `End | `Error of error] Lwt.t
 (** [read_body rdr] reads request body.
 
     If [Transfer-Encoding] header is present then each [`Body body] represents a
@@ -144,6 +156,12 @@ val read_body : body_reader -> context -> read_result Lwt.t
     If [Content-Length] header is present then [`Body body] represents the
     content body. [body.chunk_extension] is [List.empty] and [body.size]
     represents the [Content-Length] value. *)
+
+val read_content :
+     content_length
+  -> body_reader
+  -> context
+  -> [`Body of Cstruct.t | `End | `Error of error] Lwt.t
 
 (** {2 Response} *)
 
