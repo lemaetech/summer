@@ -343,9 +343,10 @@ and boundary = Http_multipart_formdata.boundary
 
 (** Determine request body type in the order given below,
 
-    - If [Transfer-Encoding: chunked] is present then [Some `Chunked]
-    - If [Content-Length: len] is present then [Some (`Content len)]
-    - If neither of the above two then [None] *)
+    - If [Transfer-Encoding: chunked] is present then [`Chunked]
+    - If [Content-Length: len] is present and [Content-Type: multipart/formdata]
+      is present then [`Multipart boundary] else [`Content len]
+    - Else [`None] *)
 let rec body_type context =
   let req = context.request in
   match chunked_body req with
