@@ -368,7 +368,7 @@ and chunked_body req =
                 Please see \
                 https://datatracker.ietf.org/doc/html/rfc7230#section-3.3.1"
                C.transfer_encoding )
-      | v when String.equal v C.chunked -> Result.ok `Chunked
+      | coding when String.equal coding C.chunked -> Result.ok `Chunked
       | _ -> Result.ok `None )
   | None -> Result.ok `None
 
