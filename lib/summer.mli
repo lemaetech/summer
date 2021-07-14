@@ -84,6 +84,8 @@ and context
 
 (** {2 Request} *)
 
+val request : context -> request
+
 val meth : request -> meth
 
 val target : request -> string
@@ -104,9 +106,7 @@ val pp_request : Format.formatter -> request -> unit
 
 val show_request : request -> string
 
-(** {2 Handler} *)
-
-val request : context -> request
+(** {2 Context} *)
 
 val conn : context -> Lwt_unix.file_descr
 
@@ -126,7 +126,7 @@ val supported_encodings : encoding list
 (** [supported_encodings] returns a list of encoding supported by [Summer]
     HTTP/1.1 web server. The following encodings are supported: [gzip,deflate] *)
 
-(** {2 Request Body Readers} *)
+(** {2 Reading Request Body} *)
 
 val body_type : context -> (body_type, error) result
 
