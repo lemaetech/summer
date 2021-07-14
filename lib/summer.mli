@@ -113,7 +113,10 @@ val supported_encodings : encoding list
 type body_reader
 
 and body_type =
-  [`Chunked | `Content of content_length | `Multipart of boundary | `None]
+  [ `Chunked
+  | `Content of content_length
+  | `Multipart of content_length * boundary
+  | `None ]
 
 and content_length = int
 

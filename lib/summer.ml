@@ -336,7 +336,10 @@ type body_reader =
   ; mutable total_read: int }
 
 and body_type =
-  [`Chunked | `Content of content_length | `Multipart of boundary | `None]
+  [ `Chunked
+  | `Content of content_length
+  | `Multipart of content_length * boundary
+  | `None ]
 
 and content_length = int
 
@@ -379,23 +382,24 @@ and chunked_body req =
 and content_body req =
   match Hashtbl.find_opt req.headers C.content_length with
   | Some content_length -> (
-    match multipart_body req with
-    | Ok `None -> (
-      try Ok (`Content (int_of_string content_length))
-      with _ ->
-        Error
-          (Format.sprintf "Invalid '%s' value: %s" C.content_length
-             content_length ) )
-    | Ok (`Multipart _) as ok -> ok
-    | Error _ as err -> err )
+    try
+      let len = int_of_string content_length in
+      match multipart_body len req with
+      | Ok `None -> Ok (`Content len)
+      | Ok (`Multipart _) as ok -> ok
+      | Error _ as err -> err
+    with _ ->
+      Error
+        (Format.sprintf "Invalid '%s' value: %s" C.content_length content_length)
+    )
   | None -> Ok `None
 
-and multipart_body req =
+and multipart_body content_length req =
   match Hashtbl.find_opt req.headers C.content_type with
   | None -> Ok `None
   | Some content_type -> (
     match Http_multipart_formdata.parse_boundary ~content_type with
-    | Ok boundary -> Ok (`Multipart boundary)
+    | Ok boundary -> Ok (`Multipart (content_length, boundary))
     | Error _ -> Ok `None )
 
 let body_reader context =
