@@ -463,8 +463,8 @@ let read_body reader context =
          request.
 
          The spec at https://datatracker.ietf.org/doc/html/rfc7230#section-4.1.3
-         specifies that 'Content-Length' and/or 'Transfer-Encoding' headers must
-         be updated. *)
+         specifies that 'Content-Length' and 'Transfer-Encoding' headers must be
+         updated. *)
       let request_headers = context.request.headers in
       (* Be strict about headers allowed in trailer headers to minimize security
          issues, eg. request smuggling attack -
@@ -490,26 +490,25 @@ let read_body reader context =
             false
         | _ -> true
       in
-      let trailer_headers =
+      let+ trailer_headers =
         let trailer_specified_headers =
           Hashtbl.find_opt request_headers C.trailer
           |> function
           | Some v -> String.split_on_char ',' v |> List.map String.trim
           | None -> []
         in
-        let+ headers = header_fields in
+        let+ headers = header_fields <* crlf <* trim_input_buffer in
         List.filter
           (fun (name, _) ->
             List.mem name trailer_specified_headers
             && is_trailer_header_allowed name )
           headers
       in
-      let+ trailer_headers = trailer_headers <* crlf <* trim_input_buffer in
       List.iter
         (fun (key, value) -> Hashtbl.replace request_headers key value)
         trailer_headers ;
-      (* Remove 'chunked' from Transfer-Encoding header value or remove it
-         entirely. *)
+      (* Remove either just the 'chunked' from Transfer-Encoding header value or
+         remove the header entirely. *)
       Hashtbl.find request_headers C.transfer_encoding
       |> String.split_on_char ',' |> List.map String.trim
       |> List.filter (fun e -> not (String.equal e C.chunked))
