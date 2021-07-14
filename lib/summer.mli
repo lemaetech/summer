@@ -128,7 +128,7 @@ val supported_encodings : encoding list
 
 (** {2 Reading Request Body} *)
 
-val body_type : context -> (body_type, error) result
+val body_type : request -> (body_type, error) result
 
 val body_reader : context -> body_reader
 (** [body_reader context] returns a body_reader. *)

@@ -362,10 +362,9 @@ let conn ctx = ctx.conn
     - If [Content-Length: len] is present and [Content-Type: multipart/formdata]
       is present then [`Multipart boundary] else [`Content len]
     - Else [`None] *)
-let rec body_type context =
-  let req = context.request in
-  match chunked_body req with
-  | Ok `None -> content_body req
+let rec body_type request =
+  match chunked_body request with
+  | Ok `None -> content_body request
   | Ok `Chunked as ok -> ok
   | Error _ as err -> err
 
