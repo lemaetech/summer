@@ -76,6 +76,11 @@ and encoder =
     (** Any other encoding - possibly a custom one - not specified by the HTTP
         RFC 7230 or 7231 or 7932. *) ]
 
+(** ['a handler] represents a connection handler. *)
+and 'a handler = context -> 'a Lwt.t
+
+(** [context] holds data for [handler] function. *)
+and context
 (** {2 Request} *)
 
 val meth : request -> meth
@@ -103,12 +108,6 @@ val pp_request : Format.formatter -> request -> unit
 val show_request : request -> string
 
 (** {2 Handler} *)
-
-(** ['a handler] represents a connection handler. *)
-type 'a handler = context -> 'a Lwt.t
-
-(** [context] holds data for [handler] function. *)
-and context
 
 val request : context -> request
 

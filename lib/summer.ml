@@ -78,6 +78,14 @@ and encoding = {encoder: encoder; weight: float option}
 and encoder =
   [`Compress | `Deflate | `Gzip | `Br | `Any | `None | `Other of string]
 
+(*-- Handler and context --*)
+and 'a handler = context -> 'a Lwt.t
+
+and context =
+  { conn: Lwt_unix.file_descr
+  ; request: request
+  ; response_headers: (string, string) Hashtbl.t }
+
 (*-- Request --*)
 
 module Make_common (P : Reparse.PARSER) = struct
@@ -345,14 +353,6 @@ and pp_encoder fmt coding =
   | `None -> ""
   | `Other enc -> Format.sprintf "Other (%s)" enc )
   |> Format.fprintf fmt "%s"
-
-(*-- Handler and context --*)
-type 'a handler = context -> 'a Lwt.t
-
-and context =
-  { conn: Lwt_unix.file_descr
-  ; request: request
-  ; response_headers: (string, string) Hashtbl.t }
 
 let request ctx = ctx.request
 
