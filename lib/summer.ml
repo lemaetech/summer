@@ -90,6 +90,18 @@ module Option = struct
   let ( let+ ) = ( >>| ) [@@warning "-32"]
 end
 
+module Result = struct
+  include Result
+
+  let ( >>= ) b f = Result.bind b f [@@warning "-32"]
+
+  let ( >>| ) b f = Result.map f b [@@warning "-32"]
+
+  let ( let* ) = ( >>= ) [@@warning "-32"]
+
+  let ( let+ ) = ( >>| ) [@@warning "-32"]
+end
+
 module C = struct
   let transfer_encoding = "transfer-encoding"
 
@@ -102,6 +114,8 @@ module C = struct
   let accept_encoding = "accept-encoding"
 
   let content_encoding = "content-encoding" [@@warning "-32"]
+
+  let content_type = "content-type" [@@warning "-32"]
 end
 
 type encoding = {encoder: encoder; weight: float option}
@@ -316,34 +330,70 @@ let conn ctx = ctx.conn
 
 type body_reader =
   { input: Reparse_lwt_unix.Fd.input
-  ; body_type: [`Chunked | `Content of int] option
+  ; body_type: body_type
   ; mutable pos: Reparse_lwt_unix.Fd.pos
   ; mutable total_read: int }
+
+and body_type =
+  [`Chunked | `Content of content_length | `Multipart of boundary | `None]
+
+and content_length = int
+
+and boundary = Http_multipart_formdata.boundary
 
 (** Determine request body type in the order given below,
 
     - If [Transfer-Encoding: chunked] is present then [Some `Chunked]
     - If [Content-Length: len] is present then [Some (`Content len)]
     - If neither of the above two then [None] *)
-let body_type context =
+let rec body_type context =
   let req = context.request in
-  Option.(
-    let chunked =
-      let* encoding = Hashtbl.find_opt req.headers C.transfer_encoding in
-      let encodings =
-        String.split_on_char ',' encoding |> List.map String.trim |> List.rev
+  match chunked_body req with
+  | Ok `None -> content_body req
+  | Ok `Chunked as ok -> ok
+  | Error _ as err -> err
+
+and chunked_body req =
+  match Hashtbl.find_opt req.headers C.transfer_encoding with
+  | Some te -> (
+      let codings =
+        List.(String.split_on_char ',' te |> map String.trim |> rev)
       in
-      match List.hd encodings with
-      | exception _ -> None
-      | v when String.equal v C.chunked -> Some `Chunked
-      | _ -> None
-    in
-    if is_none chunked then
-      let* len = Hashtbl.find_opt context.request.headers C.content_length in
-      match int_of_string len with
-      | exception _ -> None
-      | len -> Some (`Content len)
-    else chunked)
+      match List.hd codings with
+      | exception _ ->
+          Error
+            (Format.sprintf
+               "Invalid header '%s'. You need to specify at least one coding. \
+                Please see \
+                https://datatracker.ietf.org/doc/html/rfc7230#section-3.3.1"
+               C.transfer_encoding )
+      | v when String.equal v C.chunked -> Result.ok `Chunked
+      | _ -> Result.ok `None )
+  | None -> Result.ok `None
+
+and content_body req =
+  match Hashtbl.find_opt req.headers C.content_length with
+  | Some content_length -> (
+    try
+      match multipart_body req with
+      | Ok `None ->
+          let len = int_of_string content_length in
+          Ok (`Content len)
+      | Ok _ as ok -> ok
+      | Error _ as err -> err
+    with _ ->
+      Error
+        (Format.sprintf "Invalid '%s' value: %s" C.content_length content_length)
+    )
+  | None -> Ok `None
+
+and multipart_body req =
+  match Hashtbl.find_opt req.headers C.content_type with
+  | None -> Ok `None
+  | Some content_type -> (
+    match Http_multipart_formdata.parse_boundary ~content_type with
+    | Ok boundary -> Ok (`Multipart boundary)
+    | Error _ -> Ok `None )
 
 type read_result =
   [ `Body of bigstring * int
@@ -360,8 +410,9 @@ and chunk_body =
 
 let body_reader context =
   let input = Reparse_lwt_unix.Fd.create_input context.conn in
-  let body_type = body_type context in
-  {body_type; input; pos= 0; total_read= 0}
+  Result.(
+    body_type context
+    >>| fun body_type -> {body_type; input; pos= 0; total_read= 0})
 
 let read_body reader context =
   let chunk_parser reader =
@@ -489,9 +540,10 @@ let read_body reader context =
   Lwt.(
     let parser =
       match reader.body_type with
-      | Some `Chunked -> chunk_parser reader
-      | Some (`Content len) -> content_length_parser reader len
-      | None -> Reparse_lwt_unix.Fd.return `End
+      | `Chunked -> chunk_parser reader
+      | `Content len -> content_length_parser reader len
+      | `Multipart _boundary -> failwith ""
+      | `None -> Reparse_lwt_unix.Fd.return `End
     in
     Reparse_lwt_unix.Fd.parse ~pos:reader.pos reader.input parser
     >>= function

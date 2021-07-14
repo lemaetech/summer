@@ -131,7 +131,7 @@ and chunk_body =
     https://datatracker.ietf.org/doc/html/rfc7230#section-4.1.1 *)
 and chunk_extension = {name: string; value: string option}
 
-val body_reader : context -> body_reader
+val body_reader : context -> (body_reader, error) result
 (** [body_reader context] returns a body_reader. *)
 
 val read_body : body_reader -> context -> read_result Lwt.t
