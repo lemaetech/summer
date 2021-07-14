@@ -375,17 +375,15 @@ and chunked_body req =
 and content_body req =
   match Hashtbl.find_opt req.headers C.content_length with
   | Some content_length -> (
-    try
-      match multipart_body req with
-      | Ok `None ->
-          let len = int_of_string content_length in
-          Ok (`Content len)
-      | Ok (`Multipart _) as ok -> ok
-      | Error _ as err -> err
-    with _ ->
-      Error
-        (Format.sprintf "Invalid '%s' value: %s" C.content_length content_length)
-    )
+    match multipart_body req with
+    | Ok `None -> (
+      try Ok (`Content (int_of_string content_length))
+      with _ ->
+        Error
+          (Format.sprintf "Invalid '%s' value: %s" C.content_length
+             content_length ) )
+    | Ok (`Multipart _) as ok -> ok
+    | Error _ as err -> err )
   | None -> Ok `None
 
 and multipart_body req =
