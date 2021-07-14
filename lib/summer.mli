@@ -100,10 +100,6 @@ val accept_encoding : request -> (encoding list, error) result
 
 val content_encoding : request -> encoder list
 
-val add_header : header -> request -> unit
-
-val remove_header : string -> request -> unit
-
 val pp_request : Format.formatter -> request -> unit
 
 val show_request : request -> string

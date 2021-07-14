@@ -181,10 +181,6 @@ let headers t = Hashtbl.to_seq t.headers |> List.of_seq
 
 let client_addr t = t.client_addr
 
-let add_header (key, value) t = Hashtbl.replace t.headers key value
-
-let remove_header key t = Hashtbl.remove t.headers key
-
 let rec pp_request fmt t =
   let fields =
     [ Fmt.field "meth" (fun p -> p.meth) pp_meth
