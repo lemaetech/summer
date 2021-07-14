@@ -395,14 +395,7 @@ and multipart_body req =
     | Ok boundary -> Ok (`Multipart boundary)
     | Error _ -> Ok `None )
 
-type read_result =
-  [ `Body of bigstring * int
-  | `Chunk of chunk_body
-  | `Multipart of multipart_read_result
-  | `End
-  | `Error of string ]
-
-and multipart_read_result =
+type multipart_read_result =
   Http_multipart_formdata.Make(Reparse_lwt_unix.Fd).read_result
 
 and chunk_body =
