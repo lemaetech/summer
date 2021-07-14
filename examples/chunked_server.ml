@@ -7,7 +7,6 @@
  *
  * %%NAME%% %%VERSION%%
  *-------------------------------------------------------------------------*)
-open Lwt.Infix
 
 let () =
   let port = ref 3000 in
@@ -15,13 +14,14 @@ let () =
     [("-p", Arg.Set_int port, " Listening port number (3000 by default)")]
     ignore "An echo HTTP server using summer!" ;
   Summer.start ~port:!port (fun context ->
-      let buf = ref (Cstruct.create 0) in
-      Summer.read_body_chunkstream
-        ~on_chunk:(fun ~chunk ~len _exts ->
-          buf := Cstruct.append !buf (Cstruct.of_bigarray chunk ~len) ;
-          Lwt.return () )
-        context
-      >>= fun () ->
-      let content = Cstruct.to_bigarray !buf in
+      let content = Cstruct.(of_string "Under construction" |> to_bigarray) in
+      (* let buf = ref (Cstruct.create 0) in *)
+      (* Summer.read_body_chunkstream *)
+      (*   ~on_chunk:(fun ~chunk ~len _exts -> *)
+      (*     buf := Cstruct.append !buf (Cstruct.of_bigarray chunk ~len) ; *)
+      (*     Lwt.return () ) *)
+      (*   context *)
+      (* >>= fun () -> *)
+      (* let content = Cstruct.to_bigarray !buf in *)
       Summer.respond_with_bigstring ~status_code:200 ~reason_phrase:"OK"
         ~content_type:"text/plain" content context )

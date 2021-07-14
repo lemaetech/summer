@@ -306,9 +306,7 @@ and pp_encoder fmt coding =
 type 'a handler = context -> 'a Lwt.t
 
 and context =
-  { conn: Lwt_unix.file_descr
-  ; mutable request: request
-  ; mutable response_headers: header list }
+  {conn: Lwt_unix.file_descr; request: request; response_headers: header list}
 
 let request ctx = ctx.request
 
