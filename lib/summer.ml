@@ -380,7 +380,7 @@ and content_body req =
       | Ok `None ->
           let len = int_of_string content_length in
           Ok (`Content len)
-      | Ok _ as ok -> ok
+      | Ok (`Multipart _) as ok -> ok
       | Error _ as err -> err
     with _ ->
       Error
