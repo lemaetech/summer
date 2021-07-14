@@ -342,6 +342,9 @@ and content_length = int
 
 and boundary = Http_multipart_formdata.boundary
 
+and chunk_body =
+  {data: bigstring; size: int; chunk_extensions: chunk_extension list}
+
 (** Determine request body type in the order given below,
 
     - If [Transfer-Encoding: chunked] is present then [`Chunked]
@@ -394,12 +397,6 @@ and multipart_body req =
     match Http_multipart_formdata.parse_boundary ~content_type with
     | Ok boundary -> Ok (`Multipart boundary)
     | Error _ -> Ok `None )
-
-type multipart_read_result =
-  Http_multipart_formdata.Make(Reparse_lwt_unix.Fd).read_result
-
-and chunk_body =
-  {data: bigstring; size: int; chunk_extensions: chunk_extension list}
 
 let body_reader context =
   let input = Reparse_lwt_unix.Fd.create_input context.conn in

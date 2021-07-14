@@ -119,9 +119,6 @@ and content_length = int
 
 and boundary = Http_multipart_formdata.boundary
 
-and multipart_read_result =
-  Http_multipart_formdata.Make(Reparse_lwt_unix.Fd).read_result
-
 (** Represents a chunk of data read by {!type:body_reader}. *)
 and chunk_body =
   {data: bigstring; size: int; chunk_extensions: chunk_extension list}
