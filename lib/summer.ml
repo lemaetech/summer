@@ -26,14 +26,59 @@ let _debug k =
     k (fun fmt ->
         Printf.kfprintf (fun oc -> Printf.fprintf oc "\n%!") stdout fmt )
 
-type chunk_extension = {name: string; value: string option}
+type request =
+  { meth: meth
+  ; request_target: string
+  ; http_version: int * int
+  ; headers: (string, string) Hashtbl.t
+  ; client_addr: Lwt_unix.sockaddr }
 
-type header = string * string (* (name,value) *)
+(* https://datatracker.ietf.org/doc/html/rfc7231#section-4 *)
+and meth =
+  [ `GET
+  | `HEAD
+  | `POST
+  | `PUT
+  | `DELETE
+  | `CONNECT
+  | `OPTIONS
+  | `TRACE
+  | `OTHER of string ]
 
-type error = string
+and header = string * string
+(* (name,value) *)
 
-type bigstring =
+and error = string
+
+and bigstring =
   (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
+
+and body_reader =
+  { input: Reparse_lwt_unix.Fd.input
+  ; mutable pos: Reparse_lwt_unix.Fd.pos
+  ; mutable total_read: int }
+
+and body_type =
+  [ `Chunked
+  | `Content of content_length
+  | `Multipart of content_length * boundary
+  | `None ]
+
+and content_length = int
+
+and boundary = Http_multipart_formdata.boundary
+
+and chunk_body =
+  {data: bigstring; size: int; chunk_extensions: chunk_extension list}
+
+and chunk_extension = {name: string; value: string option}
+
+and encoding = {encoder: encoder; weight: float option}
+
+and encoder =
+  [`Compress | `Deflate | `Gzip | `Br | `Any | `None | `Other of string]
+
+(*-- Request --*)
 
 module Make_common (P : Reparse.PARSER) = struct
   open P
@@ -118,31 +163,6 @@ module C = struct
   let content_type = "content-type" [@@warning "-32"]
 end
 
-type encoding = {encoder: encoder; weight: float option}
-
-and encoder =
-  [`Compress | `Deflate | `Gzip | `Br | `Any | `None | `Other of string]
-
-(*-- Request --*)
-type request =
-  { meth: meth
-  ; request_target: string
-  ; http_version: int * int
-  ; headers: (string, string) Hashtbl.t
-  ; client_addr: Lwt_unix.sockaddr }
-
-(* https://datatracker.ietf.org/doc/html/rfc7231#section-4 *)
-and meth =
-  [ `GET
-  | `HEAD
-  | `POST
-  | `PUT
-  | `DELETE
-  | `CONNECT
-  | `OPTIONS
-  | `TRACE
-  | `OTHER of string ]
-
 let meth t = t.meth
 
 let target t = t.request_target
@@ -200,6 +220,16 @@ let coding = function
   | "*" -> `Any
   | "" -> `None
   | enc -> `Other enc
+
+let content_length request =
+  match Hashtbl.find_opt request.headers C.content_length with
+  | Some content_length -> (
+    try Ok (int_of_string content_length)
+    with _ ->
+      Error
+        (Format.sprintf "Invalid '%s' value: %s" C.content_length content_length)
+    )
+  | None -> Error (Format.sprintf "%s header not found" C.content_length)
 
 let accept_encoding t =
   let open Reparse.String in
@@ -329,24 +359,6 @@ let request ctx = ctx.request
 let conn ctx = ctx.conn
 
 (**-- Processing body --*)
-
-type body_reader =
-  { input: Reparse_lwt_unix.Fd.input
-  ; mutable pos: Reparse_lwt_unix.Fd.pos
-  ; mutable total_read: int }
-
-and body_type =
-  [ `Chunked
-  | `Content of content_length
-  | `Multipart of content_length * boundary
-  | `None ]
-
-and content_length = int
-
-and boundary = Http_multipart_formdata.boundary
-
-and chunk_body =
-  {data: bigstring; size: int; chunk_extensions: chunk_extension list}
 
 (** Determine request body type in the order given below,
 
