@@ -14,22 +14,19 @@
 
 let _debug_on =
   ref
-    (match String.trim @@ Sys.getenv "HTTP_DBG" with
+    ( match String.trim @@ Sys.getenv "HTTP_DBG" with
     | "" -> false
     | _ -> true
-    | exception _ -> false)
+    | exception _ -> false )
 
 let _enable_debug b = _debug_on := b
 
 let _debug k =
   if !_debug_on then
     k (fun fmt ->
-        Printf.kfprintf (fun oc -> Printf.fprintf oc "\n%!") stdout fmt)
+        Printf.kfprintf (fun oc -> Printf.fprintf oc "\n%!") stdout fmt )
 
-type chunk_extension =
-  { name : string
-  ; value : string option
-  }
+type chunk_extension = {name: string; value: string option}
 
 type header = string * string (* (name,value) *)
 
@@ -50,25 +47,11 @@ module Make_common (P : Reparse.PARSER) = struct
   (*-- https://datatracker.ietf.org/doc/html/rfc7230#appendix-B --*)
   let tchar =
     char_if (function
-      | '!'
-      | '#'
-      | '$'
-      | '%'
-      | '&'
-      | '\''
-      | '*'
-      | '+'
-      | '-'
-      | '.'
-      | '^'
-      | '_'
-      | '`'
-      | '|'
-      | '~' ->
-        true
-      | _ -> false)
-    <|> digit
-    <|> alpha
+      | '!' | '#' | '$' | '%' | '&' | '\'' | '*' | '+' | '-' | '.' | '^' | '_'
+       |'`' | '|' | '~' ->
+          true
+      | _ -> false )
+    <|> digit <|> alpha
 
   let token = take ~at_least:1 tchar >>= string_of_chars
 
@@ -83,10 +66,8 @@ module Make_common (P : Reparse.PARSER) = struct
           let c2 =
             optional
               (let* c1 = skip ~at_least:1 (space <|> htab) *> vchar in
-               string_of_chars [ ' '; c1 ])
-            >>| function
-            | Some s -> s
-            | None -> ""
+               string_of_chars [' '; c1] )
+            >>| function Some s -> s | None -> ""
           in
           (vchar, c2) <$$> fun c1 c2 -> Format.sprintf "%c%s" c1 c2
         in
@@ -123,29 +104,18 @@ module C = struct
   let content_encoding = "content-encoding" [@@warning "-32"]
 end
 
-type encoding =
-  { encoder : encoder
-  ; weight : float option
-  }
+type encoding = {encoder: encoder; weight: float option}
 
 and encoder =
-  [ `Compress
-  | `Deflate
-  | `Gzip
-  | `Br
-  | `Any
-  | `None
-  | `Other of string
-  ]
+  [`Compress | `Deflate | `Gzip | `Br | `Any | `None | `Other of string]
 
 (*-- Request --*)
 type request =
-  { meth : meth
-  ; request_target : string
-  ; http_version : int * int
-  ; headers : (string, string) Hashtbl.t
-  ; client_addr : Lwt_unix.sockaddr
-  }
+  { meth: meth
+  ; request_target: string
+  ; http_version: int * int
+  ; headers: (string, string) Hashtbl.t
+  ; client_addr: Lwt_unix.sockaddr }
 
 (* https://datatracker.ietf.org/doc/html/rfc7231#section-4 *)
 and meth =
@@ -157,8 +127,7 @@ and meth =
   | `CONNECT
   | `OPTIONS
   | `TRACE
-  | `OTHER of string
-  ]
+  | `OTHER of string ]
 
 let meth t = t.meth
 
@@ -179,8 +148,7 @@ let rec pp_request fmt t =
     [ Fmt.field "meth" (fun p -> p.meth) pp_meth
     ; Fmt.field "request_target" (fun p -> p.request_target) Fmt.string
     ; Fmt.field "http_version" (fun p -> p.http_version) pp_http_version
-    ; Fmt.field "headers" (fun p -> p.headers) pp_headers
-    ]
+    ; Fmt.field "headers" (fun p -> p.headers) pp_headers ]
   in
   Fmt.record fields fmt t
 
@@ -189,7 +157,7 @@ and pp_http_version fmt t =
   Fmt.(pair ~sep:comma' int int) fmt t
 
 and pp_meth fmt t =
-  (match t with
+  ( match t with
   | `GET -> "GET"
   | `HEAD -> "HEAD"
   | `POST -> "POST"
@@ -198,7 +166,7 @@ and pp_meth fmt t =
   | `CONNECT -> "CONNECT"
   | `OPTIONS -> "OPTIONS"
   | `TRACE -> "TRACE"
-  | `OTHER s -> Format.sprintf "OTHER (%s)" s)
+  | `OTHER s -> Format.sprintf "OTHER (%s)" s )
   |> Format.fprintf fmt "%s"
 
 and pp_headers fmt t =
@@ -209,18 +177,12 @@ and pp_headers fmt t =
 let show_request t =
   let buf = Buffer.create 0 in
   let fmt = Format.formatter_of_buffer buf in
-  pp_request fmt t;
-  Format.fprintf fmt "%!";
-  Buffer.contents buf
+  pp_request fmt t ; Format.fprintf fmt "%!" ; Buffer.contents buf
 
 let coding = function
-  | "compress"
-  | "x-compress" ->
-    `Compress
+  | "compress" | "x-compress" -> `Compress
   | "deflate" -> `Deflate
-  | "gzip"
-  | "x-gzip" ->
-    `Gzip
+  | "gzip" | "x-gzip" -> `Gzip
   | "*" -> `Any
   | "" -> `None
   | enc -> `Other enc
@@ -250,23 +212,22 @@ let accept_encoding t =
       content_coding <|> string_ci "identity" <|> string_cs "*" >>| coding
     in
     take
-      ((codings, optional weight) <$$> fun encoder weight -> { encoder; weight })
+      ((codings, optional weight) <$$> fun encoder weight -> {encoder; weight})
   in
   match Hashtbl.find_opt t.headers C.accept_encoding with
   | Some enc ->
-    if String.(trim enc |> length) = 0 then
-      Ok [ { encoder = `None; weight = None } ]
-    else
-      Reparse.String.(
-        parse (create_input_from_string enc) accept_encoding_parser)
-      |> Result.map (fun (x, _) -> x)
+      if String.(trim enc |> length) = 0 then Ok [{encoder= `None; weight= None}]
+      else
+        Reparse.String.(
+          parse (create_input_from_string enc) accept_encoding_parser)
+        |> Result.map (fun (x, _) -> x)
   | None -> Ok []
 
 let content_encoding t =
   match Hashtbl.find_opt t.headers C.accept_encoding with
   | Some enc ->
-    String.split_on_char ',' enc
-    |> List.map (fun enc -> String.trim enc |> coding)
+      String.split_on_char ',' enc
+      |> List.map (fun enc -> String.trim enc |> coding)
   | None -> []
 
 (*-- request-line = method SP request-target SP HTTP-version CRLF -- *)
@@ -276,19 +237,15 @@ let request_line =
   let* meth = token <* space in
   let* request_target =
     take_while ~while_:(is_not space) unsafe_any_char
-    >>= string_of_chars
-    <* space
+    >>= string_of_chars <* space
   in
   let* http_version =
     (*-- https://datatracker.ietf.org/doc/html/rfc7230#section-2.6 --*)
     (string_cs "HTTP/" *> digit <* char '.', digit)
-    <$$> pair
-    <* crlf
+    <$$> pair <* crlf
     >>= fun (major, minor) ->
-    if Char.equal major '1' && Char.equal minor '1' then
-      return (1, 1)
-    else
-      Format.sprintf "Invalid HTTP version: (%c,%c)" major minor |> fail
+    if Char.equal major '1' && Char.equal minor '1' then return (1, 1)
+    else Format.sprintf "Invalid HTTP version: (%c,%c)" major minor |> fail
   in
   trim_input_buffer *> return (meth, request_target, http_version)
 
@@ -309,9 +266,8 @@ let rec create_request (client_addr : Lwt_unix.sockaddr) fd =
     { meth
     ; request_target
     ; http_version
-    ; headers = List.to_seq headers |> Hashtbl.of_seq
-    ; client_addr
-    })
+    ; headers= List.to_seq headers |> Hashtbl.of_seq
+    ; client_addr })
 
 and parse_meth meth =
   String.uppercase_ascii meth
@@ -331,30 +287,28 @@ and parse_meth meth =
 let rec pp_encoding fmt t =
   let fields =
     [ Fmt.field "name" (fun p -> p.encoder) pp_encoder
-    ; Fmt.field "weight" (fun p -> p.weight) Fmt.(option float)
-    ]
+    ; Fmt.field "weight" (fun p -> p.weight) Fmt.(option float) ]
   in
   Fmt.record fields fmt t
 
 and pp_encoder fmt coding =
-  (match coding with
+  ( match coding with
   | `Compress -> "compress"
   | `Deflate -> "deflate"
   | `Gzip -> "gzip"
   | `Br -> "br"
   | `Any -> "*"
   | `None -> ""
-  | `Other enc -> Format.sprintf "Other (%s)" enc)
+  | `Other enc -> Format.sprintf "Other (%s)" enc )
   |> Format.fprintf fmt "%s"
 
 (*-- Handler and context --*)
 type 'a handler = context -> 'a Lwt.t
 
 and context =
-  { conn : Lwt_unix.file_descr
-  ; mutable request : request
-  ; mutable response_headers : header list
-  }
+  { conn: Lwt_unix.file_descr
+  ; mutable request: request
+  ; mutable response_headers: header list }
 
 let request ctx = ctx.request
 
@@ -363,11 +317,10 @@ let conn ctx = ctx.conn
 (**-- Processing body --*)
 
 type body_reader =
-  { input : Reparse_lwt_unix.Fd.input
-  ; body_type : [ `Chunked | `Content of int ] option
-  ; mutable pos : Reparse_lwt_unix.Fd.pos
-  ; mutable total_read : int
-  }
+  { input: Reparse_lwt_unix.Fd.input
+  ; body_type: [`Chunked | `Content of int] option
+  ; mutable pos: Reparse_lwt_unix.Fd.pos
+  ; mutable total_read: int }
 
 (** Determine request body type in the order given below,
 
@@ -392,27 +345,25 @@ let body_type context =
       match int_of_string len with
       | exception _ -> None
       | len -> Some (`Content len)
-    else
-      chunked)
+    else chunked)
 
 type read_result =
   [ `Body of bigstring * int
   | `Chunk of chunk_body
-  | `Multipart of Http_multipart_formdata.Part_header.t * bigstring
+  | `Multipart of multipart_read_result
   | `End
-  | `Error of string
-  ]
+  | `Error of string ]
+
+and multipart_read_result =
+  Http_multipart_formdata.Make(Reparse_lwt_unix.Fd).read_result
 
 and chunk_body =
-  { data : bigstring
-  ; size : int
-  ; chunk_extensions : chunk_extension list
-  }
+  {data: bigstring; size: int; chunk_extensions: chunk_extension list}
 
 let body_reader context =
   let input = Reparse_lwt_unix.Fd.create_input context.conn in
   let body_type = body_type context in
-  { body_type; input; pos = 0; total_read = 0 }
+  {body_type; input; pos= 0; total_read= 0}
 
 let read_body reader context =
   let chunk_parser reader =
@@ -421,13 +372,11 @@ let read_body reader context =
     let quoted_pair = char '\\' *> (whitespace <|> vchar) in
     (*-- qdtext = HTAB / SP /%x21 / %x23-5B / %x5D-7E / obs-text -- *)
     let qdtext =
-      htab
-      <|> space
-      <|> char '\x21'
+      htab <|> space <|> char '\x21'
       <|> char_if (function
             | '\x23' .. '\x5B' -> true
             | '\x5D' .. '\x7E' -> true
-            | _ -> false)
+            | _ -> false )
     in
     (*-- quoted-string = DQUOTE *( qdtext / quoted-pair ) DQUOTE --*)
     let quoted_string =
@@ -441,18 +390,16 @@ let read_body reader context =
       let chunk_ext_name = token in
       let chunk_ext_val = quoted_string <|> token in
       take
-        ((char ';' *> chunk_ext_name, optional (char '=' *> chunk_ext_val))
-        <$$> fun name value : chunk_extension -> { name; value })
+        ( (char ';' *> chunk_ext_name, optional (char '=' *> chunk_ext_val))
+        <$$> fun name value : chunk_extension -> {name; value} )
       <?> "[chunk_ext]"
     in
     let chunk_size =
-      take ~at_least:1 hex_digit
-      >>= string_of_chars
+      take ~at_least:1 hex_digit >>= string_of_chars
       >>= fun sz ->
-      try return (Format.sprintf "0x%s" sz |> int_of_string) with
-      | _ -> fail (Format.sprintf "[chunk_size] Invalid chunk_size: %s" sz)
+      try return (Format.sprintf "0x%s" sz |> int_of_string)
+      with _ -> fail (Format.sprintf "[chunk_size] Invalid chunk_size: %s" sz)
     in
-
     (* Chunk decoding algorithm is explained at
        https://datatracker.ietf.org/doc/html/rfc7230#section-4.1.3 *)
     let* size, chunk_extensions = (chunk_size, chunk_ext <* crlf) <$$> pair in
@@ -461,9 +408,9 @@ let read_body reader context =
         let+ buf = unsafe_take_cstruct size <* trim_input_buffer in
         Cstruct.to_bigarray buf
       in
-      reader.total_read <- reader.total_read + size;
-      `Chunk { data = chunk_data; size; chunk_extensions }
-    ) else if size = 0 then (
+      reader.total_read <- reader.total_read + size ;
+      `Chunk {data= chunk_data; size; chunk_extensions} )
+    else if size = 0 then (
       (* If chunk size is 0 then read the chunk trailers and update the context
          request.
 
@@ -471,7 +418,6 @@ let read_body reader context =
          specifies that 'Content-Length' and/or 'Transfer-Encoding' headers must
          be updated. *)
       let request_headers = context.request.headers in
-
       (* Be strict about headers allowed in trailer headers to minimize security
          issues, eg. request smuggling attack -
          https://portswigger.net/web-security/request-smuggling
@@ -479,38 +425,21 @@ let read_body reader context =
          Allowed headers are defined in 2nd paragraph of
          https://datatracker.ietf.org/doc/html/rfc7230#section-4.1.2 *)
       let is_trailer_header_allowed = function
-        | "transfer-encoding"
-        | "content-length"
-        | "host"
+        | "transfer-encoding" | "content-length" | "host"
         (* Request control headers are not allowed. *)
-        | "cache-control"
-        | "expect"
-        | "max-forwards"
-        | "pragma"
-        | "range"
-        | "te"
+         |"cache-control" | "expect" | "max-forwards" | "pragma" | "range"
+         |"te"
         (* Authentication headers are not allowed. *)
-        | "www-authenticate"
-        | "authorization"
-        | "proxy-authenticate"
-        | "proxy-authorization"
+         |"www-authenticate" | "authorization" | "proxy-authenticate"
+         |"proxy-authorization"
         (* Cookie headers are not allowed. *)
-        | "cookie"
-        | "set-cookie"
+         |"cookie" | "set-cookie"
         (* Response control data headers are not allowed. *)
-        | "age"
-        | "expires"
-        | "date"
-        | "location"
-        | "retry-after"
-        | "vary"
-        | "warning"
+         |"age" | "expires" | "date" | "location" | "retry-after" | "vary"
+         |"warning"
         (* Headers to process the payload are not allowed. *)
-        | "content-encoding"
-        | "content-type"
-        | "content-range"
-        | "trailer" ->
-          false
+         |"content-encoding" | "content-type" | "content-range" | "trailer" ->
+            false
         | _ -> true
       in
       let trailer_headers =
@@ -524,36 +453,30 @@ let read_body reader context =
         List.filter
           (fun (name, _) ->
             List.mem name trailer_specified_headers
-            && is_trailer_header_allowed name)
+            && is_trailer_header_allowed name )
           headers
       in
       let+ trailer_headers = trailer_headers <* crlf <* trim_input_buffer in
       List.iter
         (fun (key, value) -> Hashtbl.replace request_headers key value)
-        trailer_headers;
-
+        trailer_headers ;
       (* Remove 'chunked' from Transfer-Encoding header value or remove it
          entirely. *)
       Hashtbl.find request_headers C.transfer_encoding
-      |> String.split_on_char ','
-      |> List.map String.trim
+      |> String.split_on_char ',' |> List.map String.trim
       |> List.filter (fun e -> not (String.equal e C.chunked))
       |> String.concat ","
       |> fun te ->
       if String.length te > 0 then
         Hashtbl.replace request_headers C.transfer_encoding te
-      else
-        Hashtbl.remove request_headers C.transfer_encoding;
-
+      else Hashtbl.remove request_headers C.transfer_encoding ;
       (* Remove Trailer header. *)
-      Hashtbl.remove request_headers C.trailer;
-
+      Hashtbl.remove request_headers C.trailer ;
       (* Add/Update Content-Length header. *)
       Hashtbl.replace request_headers C.content_length
-        (string_of_int reader.total_read);
-      `End
-    ) else
-      fail (Format.sprintf "Invalid chunk size: %d" size)
+        (string_of_int reader.total_read) ;
+      `End )
+    else fail (Format.sprintf "Invalid chunk size: %d" size)
   in
   let content_length_parser reader len =
     let open Reparse_lwt_unix.Fd in
@@ -561,10 +484,9 @@ let read_body reader context =
       let len = len - reader.total_read in
       let+ buf = unsafe_take_cstruct len <* trim_input_buffer in
       let size = Cstruct.len buf in
-      reader.total_read <- reader.total_read + size;
-      `Body (Cstruct.to_bigarray buf, size)
-    ) else
-      return `End
+      reader.total_read <- reader.total_read + size ;
+      `Body (Cstruct.to_bigarray buf, size) )
+    else return `End
   in
   Lwt.(
     let parser =
@@ -576,8 +498,8 @@ let read_body reader context =
     Reparse_lwt_unix.Fd.parse ~pos:reader.pos reader.input parser
     >>= function
     | Ok (x, pos) ->
-      reader.pos <- pos;
-      return x
+        reader.pos <- pos ;
+        return x
     | Error e -> return (`Error e))
 
 let deflate_decode str =
@@ -588,8 +510,8 @@ let deflate_decode str =
   let p = ref 0 in
   let refill buf =
     let len = min (Bigstringaf.length str - !p) De.io_buffer_size in
-    Bigstringaf.blit str ~src_off:!p buf ~dst_off:0 ~len;
-    p := !p + len;
+    Bigstringaf.blit str ~src_off:!p buf ~dst_off:0 ~len ;
+    p := !p + len ;
     len
   in
   let flush buf len =
@@ -609,15 +531,15 @@ let deflate_encode str =
   let p = ref 0 in
   let refill buf =
     let len = min (Bigstringaf.length str - !p) De.io_buffer_size in
-    Bigstringaf.blit str ~src_off:!p buf ~dst_off:0 ~len;
-    p := !p + len;
+    Bigstringaf.blit str ~src_off:!p buf ~dst_off:0 ~len ;
+    p := !p + len ;
     len
   in
   let flush buf len =
     let str = Bigstringaf.substring buf ~off:0 ~len in
     Buffer.add_string r str
   in
-  De.Higher.compress ~w ~q ~refill ~flush i o;
+  De.Higher.compress ~w ~q ~refill ~flush i o ;
   Buffer.contents r
 
 let gzip_decode (str : Bigstringaf.t) =
@@ -627,8 +549,8 @@ let gzip_decode (str : Bigstringaf.t) =
   let p = ref 0 in
   let refill buf =
     let len = min (Bigstringaf.length str - !p) De.io_buffer_size in
-    Bigstringaf.blit str ~src_off:!p buf ~dst_off:0 ~len;
-    p := !p + len;
+    Bigstringaf.blit str ~src_off:!p buf ~dst_off:0 ~len ;
+    p := !p + len ;
     len
   in
   let flush buf len =
@@ -651,21 +573,19 @@ let gzip_encode ?(level = 4) (str : Bigstringaf.t) =
   let cfg = Gz.Higher.configuration Gz.Unix time in
   let refill buf =
     let len = min (Bigstringaf.length str - !p) De.io_buffer_size in
-    Bigstringaf.blit str ~src_off:!p buf ~dst_off:0 ~len;
-    p := !p + len;
+    Bigstringaf.blit str ~src_off:!p buf ~dst_off:0 ~len ;
+    p := !p + len ;
     len
   in
   let flush buf len =
     let str = Bigstringaf.substring buf ~off:0 ~len in
     Buffer.add_string r str
   in
-  Gz.Higher.compress ~w ~q ~level ~refill ~flush () cfg i o;
+  Gz.Higher.compress ~w ~q ~level ~refill ~flush () cfg i o ;
   Buffer.contents r
 
 let supported_encodings : encoding list =
-  [ { encoder = `Gzip; weight = Some 1.0 }
-  ; { encoder = `Deflate; weight = Some 0.0 }
-  ]
+  [{encoder= `Gzip; weight= Some 1.0}; {encoder= `Deflate; weight= Some 0.0}]
 
 open Lwt.Infix
 module IO_vector = Lwt_unix.IO_vectors
@@ -677,21 +597,21 @@ let respond_with_bigstring ~(status_code : int) ~(reason_phrase : string)
     Format.sprintf "HTTP/1.1 %d %s\r\n" status_code reason_phrase
     |> Lwt_bytes.of_string
   in
-  IO_vector.append_bigarray iov status_line 0 (Lwt_bytes.length status_line);
+  IO_vector.append_bigarray iov status_line 0 (Lwt_bytes.length status_line) ;
   let content_type_header =
     Format.sprintf "Content-Type: %s\r\n" content_type |> Lwt_bytes.of_string
   in
   IO_vector.append_bigarray iov content_type_header 0
-    (Lwt_bytes.length content_type_header);
+    (Lwt_bytes.length content_type_header) ;
   let content_length = Lwt_bytes.length body in
   let content_length_header =
     Format.sprintf "Content-Length: %d\r\n" content_length
     |> Lwt_bytes.of_string
   in
   IO_vector.append_bigarray iov content_length_header 0
-    (Lwt_bytes.length content_length_header);
-  IO_vector.append_bytes iov (Bytes.unsafe_of_string "\r\n") 0 2;
-  IO_vector.append_bigarray iov body 0 content_length;
+    (Lwt_bytes.length content_length_header) ;
+  IO_vector.append_bytes iov (Bytes.unsafe_of_string "\r\n") 0 2 ;
+  IO_vector.append_bigarray iov body 0 content_length ;
   Lwt_unix.writev context.conn iov >|= fun _ -> ()
 
 let write_status conn status_code reason_phrase =
@@ -700,39 +620,37 @@ let write_status conn status_code reason_phrase =
     Format.sprintf "HTTP/1.1 %d %s\r\n" status_code reason_phrase
     |> Lwt_bytes.of_string
   in
-  IO_vector.append_bigarray iov status_line 0 (Lwt_bytes.length status_line);
+  IO_vector.append_bigarray iov status_line 0 (Lwt_bytes.length status_line) ;
   Lwt_unix.writev conn iov >|= fun _ -> ()
 
 let rec handle_requests request_handler client_addr conn =
-  _debug (fun k -> k "Waiting for new request ...\n%!");
+  _debug (fun k -> k "Waiting for new request ...\n%!") ;
   create_request client_addr conn
   >>= function
   | Ok req -> (
-    _debug (fun k -> k "%s\n%!" (show_request req));
-    Lwt.catch
-      (fun () ->
-        let context = { conn; request = req; response_headers = [] } in
-        request_handler context)
-      (fun exn ->
-        _debug (fun k -> k "Unhandled exception: %s" (Printexc.to_string exn));
-        write_status conn 500 "Internal Server Error")
-    >>= fun () ->
-    match Hashtbl.find_opt req.headers "Connection" with
-    | Some "close" -> Lwt_unix.close conn
-    | Some _
-    | None ->
-      handle_requests request_handler client_addr conn)
+      _debug (fun k -> k "%s\n%!" (show_request req)) ;
+      Lwt.catch
+        (fun () ->
+          let context = {conn; request= req; response_headers= []} in
+          request_handler context )
+        (fun exn ->
+          _debug (fun k -> k "Unhandled exception: %s" (Printexc.to_string exn)) ;
+          write_status conn 500 "Internal Server Error" )
+      >>= fun () ->
+      match Hashtbl.find_opt req.headers "Connection" with
+      | Some "close" -> Lwt_unix.close conn
+      | Some _ | None -> handle_requests request_handler client_addr conn )
   | Error e ->
-    _debug (fun k -> k "Error: %s" e);
-    write_status conn 400 "Bad Request"
+      _debug (fun k -> k "Error: %s" e) ;
+      write_status conn 400 "Bad Request"
 
 let start ~port request_handler =
   let listen_address = Unix.(ADDR_INET (inet_addr_loopback, port)) in
-  Lwt_engine.set (new Lwt_engine.libev ());
+  Lwt_engine.set (new Lwt_engine.libev ()) ;
   Lwt.async (fun () ->
       Lwt_io.establish_server_with_client_socket ~backlog:11_000 ~no_close:true
         listen_address
         (handle_requests request_handler)
-      >>= fun _server -> Lwt.return ());
+      >>= fun _server -> Lwt.return () ) ;
   let forever, _ = Lwt.wait () in
   Lwt_main.run forever

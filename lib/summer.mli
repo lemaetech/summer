@@ -21,10 +21,7 @@ type error = string
 
 (** [accept_encoding] represents [Accept-Encoding] and [Content-Encoding] header
     values. https://datatracker.ietf.org/doc/html/rfc7231#section-5.3.4 *)
-type encoding =
-  { encoder : encoder
-  ; weight : float option
-  }
+type encoding = {encoder: encoder; weight: float option}
 
 and encoder =
   [ `Compress
@@ -42,8 +39,7 @@ and encoder =
     (** Represented by empty ("Accept-Encoding: ") encoding header value. *)
   | `Other of string
     (** Any other encoding - possibly a custom one - not specified by the HTTP
-        RFC 7230 or 7231 or 7932. *)
-  ]
+        RFC 7230 or 7231 or 7932. *) ]
 
 (** {2 Request} *)
 
@@ -59,8 +55,7 @@ type meth =
   | `CONNECT
   | `OPTIONS
   | `TRACE
-  | `OTHER of string
-  ]
+  | `OTHER of string ]
 
 val meth : request -> meth
 
@@ -108,9 +103,9 @@ val gzip_decode : bigstring -> (string, error) result
 
 val gzip_encode : ?level:int -> bigstring -> string
 
+val supported_encodings : encoding list
 (** [supported_encodings] returns a list of encoding supported by [Summer]
     HTTP/1.1 web server. The following encodings are supported: [gzip,deflate] *)
-val supported_encodings : encoding list
 
 (** {2 Request Body Reader} *)
 
@@ -121,28 +116,25 @@ type body_reader
 type read_result =
   [ `Body of bigstring * int
   | `Chunk of chunk_body
-  | `Multipart of Http_multipart_formdata.Part_header.t * bigstring
+  | `Multipart of multipart_read_result
   | `End
-  | `Error of string
-  ]
+  | `Error of string ]
+
+and multipart_read_result =
+  Http_multipart_formdata.Make(Reparse_lwt_unix.Fd).read_result
 
 (** Represents a chunk of data read by {!type:body_reader}. *)
 and chunk_body =
-  { data : bigstring
-  ; size : int
-  ; chunk_extensions : chunk_extension list
-  }
+  {data: bigstring; size: int; chunk_extensions: chunk_extension list}
 
 (** [chunk_extension] is an optional component of a chunk. It is defined at
     https://datatracker.ietf.org/doc/html/rfc7230#section-4.1.1 *)
-and chunk_extension =
-  { name : string
-  ; value : string option
-  }
+and chunk_extension = {name: string; value: string option}
 
-(** [body_reader context] returns a body_reader. *)
 val body_reader : context -> body_reader
+(** [body_reader context] returns a body_reader. *)
 
+val read_body : body_reader -> context -> read_result Lwt.t
 (** [read_body rdr] reads request body.
 
     If [Transfer-Encoding] header is present then each [`Body body] represents a
@@ -152,7 +144,6 @@ val body_reader : context -> body_reader
     If [Content-Length] header is present then [`Body body] represents the
     content body. [body.chunk_extension] is [List.empty] and [body.size]
     represents the [Content-Length] value. *)
-val read_body : body_reader -> context -> read_result Lwt.t
 
 (** {2 Response} *)
 
@@ -165,8 +156,8 @@ val respond_with_bigstring :
 
 (** {2 HTTP server} *)
 
-(** [start port request_handler] Starts HTTP/1.1 server at [port]. *)
 val start : port:int -> unit handler -> unit
+(** [start port request_handler] Starts HTTP/1.1 server at [port]. *)
 
 (** {2 Pretty printers} *)
 
