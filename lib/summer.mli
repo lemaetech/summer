@@ -8,7 +8,12 @@
  * %%NAME%% %%VERSION%%
  *-------------------------------------------------------------------------*)
 
-(** [Summer] is a HTTP/1.1 server. *)
+(** [Summer] is a HTTP/1.1 server.
+
+    It aims to implement the following HTTP rfcs:
+
+    - https://datatracker.ietf.org/doc/html/rfc7230
+    - https://datatracker.ietf.org/doc/html/rfc7231 *)
 
 (** [request] represents a HTTP/1.1 request *)
 type request

@@ -8,10 +8,6 @@
  * %%NAME%% %%VERSION%%
  *-------------------------------------------------------------------------*)
 
-(* Summer is a http 1.1 server as outlined in the following RFCs 1.
-   https://datatracker.ietf.org/doc/html/rfc7230 2.
-   https://datatracker.ietf.org/doc/html/rfc7231 *)
-
 let _debug_on =
   ref
     ( match String.trim @@ Sys.getenv "HTTP_DBG" with
