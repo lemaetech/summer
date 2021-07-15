@@ -43,7 +43,7 @@ and meth =
   | `CONNECT
   | `OPTIONS
   | `TRACE
-  | `OTHER of string ]
+  | `Method of string ]
 
 and header = string * string
 (* (name,value) *)
@@ -204,7 +204,7 @@ and pp_meth fmt t =
   | `CONNECT -> "CONNECT"
   | `OPTIONS -> "OPTIONS"
   | `TRACE -> "TRACE"
-  | `OTHER s -> Format.sprintf "OTHER (%s)" s )
+  | `Method s -> Format.sprintf "Method (%s)" s )
   |> Format.fprintf fmt "%s"
 
 and pp_headers fmt t =
@@ -328,7 +328,7 @@ and parse_meth meth =
   | "CONNECT" -> `CONNECT
   | "OPTIONS" -> `OPTIONS
   | "TRACE" -> `TRACE
-  | header -> `OTHER header
+  | header -> `Method header
 
 (*-- Request --*)
 

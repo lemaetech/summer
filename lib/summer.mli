@@ -22,7 +22,7 @@ and meth =
   | `CONNECT
   | `OPTIONS
   | `TRACE
-  | `OTHER of string ]
+  | `Method of string ]
 
 (** Represents a request body reader *)
 and body_reader
