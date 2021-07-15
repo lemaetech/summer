@@ -8,6 +8,7 @@
   decompress.gz
   reparse
   reparse-lwt-unix
+  http-multipart-formdata
   lwt
   lwt.unix
   fmt))

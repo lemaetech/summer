@@ -10,22 +10,49 @@
 
 (** [Summer] is a HTTP/1.1 server. *)
 
-(** [header] represents a HTTP header, a tuple of (name * value) *)
-type header = string * string
+(** [request] represents a HTTP/1.1 request *)
+type request
 
-type bigstring =
-  (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
+and meth =
+  [ `GET
+  | `HEAD
+  | `POST
+  | `PUT
+  | `DELETE
+  | `CONNECT
+  | `OPTIONS
+  | `TRACE
+  | `Method of string ]
 
-(** [error] represents an error string *)
-type error = string
+(** Represents a request body reader *)
+and body_reader
+
+and body_type =
+  [ `Chunked
+  | `Content of content_length
+  | `Multipart of content_length * boundary
+  | `None ]
+
+and content_length = int
+
+and boundary = Http_multipart_formdata.boundary
+
+(** Represents a chunk of data read by {!type:body_reader}. *)
+and chunk_body = {data: Cstruct.t; chunk_extensions: chunk_extension list}
 
 (** [chunk_extension] is an optional component of a chunk. It is defined at
     https://datatracker.ietf.org/doc/html/rfc7230#section-4.1.1 *)
-type chunk_extension = {name: string; value: string option}
+and chunk_extension = {name: string; value: string option}
+
+(** [header] represents a HTTP header, a tuple of (name * value) *)
+and header = string * string
+
+(** [error] represents an error string *)
+and error = string
 
 (** [accept_encoding] represents [Accept-Encoding] and [Content-Encoding] header
     values. https://datatracker.ietf.org/doc/html/rfc7231#section-5.3.4 *)
-type encoding = {encoder: encoder; weight: float option}
+and encoding = {encoder: encoder; weight: float option}
 
 and encoder =
   [ `Compress
@@ -45,67 +72,83 @@ and encoder =
     (** Any other encoding - possibly a custom one - not specified by the HTTP
         RFC 7230 or 7231 or 7932. *) ]
 
-(** {2 Request} *)
-
-(** [request] represents a HTTP/1.1 request *)
-type request
-
-type meth =
-  [ `GET
-  | `HEAD
-  | `POST
-  | `PUT
-  | `DELETE
-  | `CONNECT
-  | `OPTIONS
-  | `TRACE
-  | `OTHER of string ]
-
-val meth : request -> meth
-val target : request -> string
-val http_version : request -> int * int
-val headers : request -> header list
-val client_addr : request -> Lwt_unix.sockaddr
-val accept_encoding : request -> (encoding list, error) result
-val content_encoding : request -> encoder list
-val add_header : header -> request -> unit
-val remove_header : string -> request -> unit
-val pp_request : Format.formatter -> request -> unit
-val show_request : request -> string
-
-(** {2 Handler} *)
-
 (** ['a handler] represents a connection handler. *)
-type 'a handler = context -> 'a Lwt.t
+and 'a handler = context -> 'a Lwt.t
 
 (** [context] holds data for [handler] function. *)
 and context
 
+(** {2 Request} *)
+
 val request : context -> request
 
-(** {2 [deflate] content encoding, decoding *)
+val meth : request -> meth
 
-val deflate_decode : bigstring -> (string, error) result
-val deflate_encode : bigstring -> string
+val target : request -> string
 
-(** {2 [gzip] content encoding, decoding *)
+val http_version : request -> int * int
 
-val gzip_decode : bigstring -> (string, error) result
-val gzip_encode : ?level:int -> bigstring -> string
+val headers : request -> header list
+
+val client_addr : request -> Lwt_unix.sockaddr
+
+val content_length : request -> (content_length, error) result
+
+val accept_encoding : request -> (encoding list, error) result
+
+val content_encoding : request -> encoder list
+
+val pp_request : Format.formatter -> request -> unit
+
+val show_request : request -> string
+
+(** {2 Context} *)
+
+val conn : context -> Lwt_unix.file_descr
+
+(** {2 deflate content encoding, decoding} *)
+
+val deflate_decode : Cstruct.buffer -> (string, error) result
+
+val deflate_encode : Cstruct.buffer -> string
+
+(** {2 gzip content encoding, decoding} *)
+
+val gzip_decode : Cstruct.buffer -> (string, error) result
+
+val gzip_encode : ?level:int -> Cstruct.buffer -> string
 
 val supported_encodings : encoding list
 (** [supported_encodings] returns a list of encoding supported by [Summer]
     HTTP/1.1 web server. The following encodings are supported: [gzip,deflate] *)
 
-val read_body_chunks :
-     on_chunk:(chunk:bigstring -> len:int -> chunk_extension list -> unit Lwt.t)
-  -> unit handler
-(** [read_body_chunks] supports reading request body when
-    [Transfer-Encoding: chunked] is present in the request headers. *)
+(** {2 Reading Request Body} *)
 
-val read_body_content : bigstring handler
-(** [read_body_content] reads and returns request body content as bigstring when
-    [Content-Length] header is present in request. *)
+val body_type : request -> (body_type, error) result
+
+val body_reader : context -> body_reader
+(** [body_reader context] returns a body_reader. *)
+
+val read_chunked :
+     body_reader
+  -> context
+  -> [`Chunk of chunk_body | `End | `Error of error] Lwt.t
+(** [read_body rdr] reads request body.
+
+    If [Transfer-Encoding] header is present then each [`Body body] represents a
+    request body 'chunk'. [body.chunk_extension] represents any chunk extensions
+    present in the request chunk and [body.size] represents the chunk size.
+
+    If [Content-Length] header is present then [`Body body] represents the
+    content body. [body.chunk_extension] is [List.empty] and [body.size]
+    represents the [Content-Length] value. *)
+
+val read_content :
+     content_length
+  -> ?read_buf_size:int
+  -> body_reader
+  -> context
+  -> [`Content of Cstruct.t | `End | `Error of error] Lwt.t
 
 (** {2 Response} *)
 
@@ -113,7 +156,7 @@ val respond_with_bigstring :
      status_code:int
   -> reason_phrase:string
   -> content_type:string
-  -> bigstring
+  -> Cstruct.buffer
   -> unit handler
 
 (** {2 HTTP server} *)
@@ -124,4 +167,5 @@ val start : port:int -> unit handler -> unit
 (** {2 Pretty printers} *)
 
 val pp_encoder : Format.formatter -> encoder -> unit
+
 val pp_encoding : Format.formatter -> encoding -> unit

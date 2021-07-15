@@ -8,13 +8,47 @@
  * %%NAME%% %%VERSION%%
  *-------------------------------------------------------------------------*)
 
+open Lwt.Infix
+
 let () =
   let port = ref 3000 in
   Arg.parse
     [("-p", Arg.Set_int port, " Listening port number (3000 by default)")]
     ignore "An echo HTTP server using summer!" ;
+  let rec read_content content_length reader context bufs =
+    Summer.read_content ~read_buf_size:10 content_length reader context
+    >>= function
+    | `Content buf -> read_content content_length reader context (buf :: bufs)
+    | `End -> Lwt.return (Ok bufs)
+    | `Error e -> Lwt.return (Error e)
+  in
+  let rec read_chunked reader context bufs =
+    Summer.read_chunked reader context
+    >>= function
+    | `Chunk {data; _} -> read_chunked reader context (data :: bufs)
+    | `End -> Lwt.return (Ok bufs)
+    | `Error e -> Lwt.return (Error e)
+  in
   Summer.start ~port:!port (fun context ->
       let req = Summer.request context in
-      let text = Summer.show_request req |> Lwt_bytes.of_string in
-      Summer.respond_with_bigstring ~status_code:200 ~reason_phrase:"OK"
-        ~content_type:"text/plain" text context )
+      ( match Summer.body_type req with
+      | Ok (`Content len) ->
+          let reader = Summer.body_reader context in
+          read_content len reader context []
+      | Ok `Chunked ->
+          let reader = Summer.body_reader context in
+          read_chunked reader context []
+      | Ok `None -> Lwt.return (Ok [Cstruct.empty])
+      | Ok _ -> failwith ""
+      | Error _ -> Lwt.return (Error "") )
+      >>= function
+      | Ok bufs ->
+          let body = List.rev bufs |> Cstruct.concat in
+          let text =
+            Format.sprintf "%s\n\n%s" (Summer.show_request req)
+              (Cstruct.to_string body)
+            |> Lwt_bytes.of_string
+          in
+          Summer.respond_with_bigstring ~status_code:200 ~reason_phrase:"OK"
+            ~content_type:"text/plain" text context
+      | Error _ -> Lwt.return () )
