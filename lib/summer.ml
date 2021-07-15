@@ -50,9 +50,6 @@ and header = string * string
 
 and error = string
 
-and bigstring =
-  (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
-
 and body_reader =
   { input: Reparse_lwt_unix.Fd.input
   ; mutable pos: Reparse_lwt_unix.Fd.pos
@@ -68,8 +65,7 @@ and content_length = int
 
 and boundary = Http_multipart_formdata.boundary
 
-and chunk_body =
-  {data: bigstring; size: int; chunk_extensions: chunk_extension list}
+and chunk_body = {data: Cstruct.t; chunk_extensions: chunk_extension list}
 
 and chunk_extension = {name: string; value: string option}
 
@@ -452,12 +448,9 @@ let read_chunked reader context =
        https://datatracker.ietf.org/doc/html/rfc7230#section-4.1.3 *)
     let* size, chunk_extensions = (chunk_size, chunk_ext <* crlf) <$$> pair in
     if size > 0 then (
-      let+ chunk_data =
-        let+ buf = unsafe_take_cstruct size <* trim_input_buffer in
-        Cstruct.to_bigarray buf
-      in
+      let+ data = unsafe_take_cstruct size <* trim_input_buffer in
       reader.total_read <- reader.total_read + size ;
-      `Chunk {data= chunk_data; size; chunk_extensions} )
+      `Chunk {data; chunk_extensions} )
     else if size = 0 then (
       (* If chunk size is 0 then read the chunk trailers and update the context
          request.
@@ -640,7 +633,7 @@ open Lwt.Infix
 module IO_vector = Lwt_unix.IO_vectors
 
 let respond_with_bigstring ~(status_code : int) ~(reason_phrase : string)
-    ~(content_type : string) (body : bigstring) context =
+    ~(content_type : string) (body : Cstruct.buffer) context =
   let iov = IO_vector.create () in
   let status_line =
     Format.sprintf "HTTP/1.1 %d %s\r\n" status_code reason_phrase

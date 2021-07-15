@@ -38,8 +38,7 @@ and content_length = int
 and boundary = Http_multipart_formdata.boundary
 
 (** Represents a chunk of data read by {!type:body_reader}. *)
-and chunk_body =
-  {data: bigstring; size: int; chunk_extensions: chunk_extension list}
+and chunk_body = {data: Cstruct.t; chunk_extensions: chunk_extension list}
 
 (** [chunk_extension] is an optional component of a chunk. It is defined at
     https://datatracker.ietf.org/doc/html/rfc7230#section-4.1.1 *)
@@ -47,9 +46,6 @@ and chunk_extension = {name: string; value: string option}
 
 (** [header] represents a HTTP header, a tuple of (name * value) *)
 and header = string * string
-
-and bigstring =
-  (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
 
 (** [error] represents an error string *)
 and error = string
@@ -112,15 +108,15 @@ val conn : context -> Lwt_unix.file_descr
 
 (** {2 deflate content encoding, decoding} *)
 
-val deflate_decode : bigstring -> (string, error) result
+val deflate_decode : Cstruct.buffer -> (string, error) result
 
-val deflate_encode : bigstring -> string
+val deflate_encode : Cstruct.buffer -> string
 
 (** {2 gzip content encoding, decoding} *)
 
-val gzip_decode : bigstring -> (string, error) result
+val gzip_decode : Cstruct.buffer -> (string, error) result
 
-val gzip_encode : ?level:int -> bigstring -> string
+val gzip_encode : ?level:int -> Cstruct.buffer -> string
 
 val supported_encodings : encoding list
 (** [supported_encodings] returns a list of encoding supported by [Summer]
@@ -159,7 +155,7 @@ val respond_with_bigstring :
      status_code:int
   -> reason_phrase:string
   -> content_type:string
-  -> bigstring
+  -> Cstruct.buffer
   -> unit handler
 
 (** {2 HTTP server} *)
