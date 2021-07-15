@@ -86,25 +86,15 @@ and context
 (** {2 Request} *)
 
 val request : context -> request
-
 val meth : request -> meth
-
 val target : request -> string
-
 val http_version : request -> int * int
-
 val headers : request -> header list
-
 val client_addr : request -> Lwt_unix.sockaddr
-
 val content_length : request -> (content_length, error) result
-
 val accept_encoding : request -> (encoding list, error) result
-
 val content_encoding : request -> encoder list
-
 val pp_request : Format.formatter -> request -> unit
-
 val show_request : request -> string
 
 (** {2 Context} *)
@@ -114,13 +104,11 @@ val conn : context -> Lwt_unix.file_descr
 (** {2 deflate content encoding, decoding} *)
 
 val deflate_decode : Cstruct.buffer -> (string, error) result
-
 val deflate_encode : Cstruct.buffer -> string
 
 (** {2 gzip content encoding, decoding} *)
 
 val gzip_decode : Cstruct.buffer -> (string, error) result
-
 val gzip_encode : ?level:int -> Cstruct.buffer -> string
 
 val supported_encodings : encoding list
@@ -172,5 +160,4 @@ val start : port:int -> unit handler -> unit
 (** {2 Pretty printers} *)
 
 val pp_encoder : Format.formatter -> encoder -> unit
-
 val pp_encoding : Format.formatter -> encoding -> unit

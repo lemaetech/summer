@@ -99,7 +99,6 @@ module Make_common (P : Reparse.PARSER) = struct
     <|> digit <|> alpha
 
   let token = take ~at_least:1 tchar >>= string_of_chars
-
   let ows = skip (space <|> htab) *> unit
 
   (*-- https://datatracker.ietf.org/doc/html/rfc7230#section-3.2 --*)
@@ -127,11 +126,8 @@ module Option = struct
   include Option
 
   let ( >>= ) b f = Option.bind b f [@@warning "-32"]
-
   let ( >>| ) b f = Option.map f b [@@warning "-32"]
-
   let ( let* ) = ( >>= ) [@@warning "-32"]
-
   let ( let+ ) = ( >>| ) [@@warning "-32"]
 end
 
@@ -139,38 +135,25 @@ module Result = struct
   include Result
 
   let ( >>= ) b f = Result.bind b f [@@warning "-32"]
-
   let ( >>| ) b f = Result.map f b [@@warning "-32"]
-
   let ( let* ) = ( >>= ) [@@warning "-32"]
-
   let ( let+ ) = ( >>| ) [@@warning "-32"]
 end
 
 module C = struct
   let transfer_encoding = "transfer-encoding"
-
   let trailer = "trailer"
-
   let content_length = "content-length"
-
   let chunked = "chunked"
-
   let accept_encoding = "accept-encoding"
-
   let content_encoding = "content-encoding" [@@warning "-32"]
-
   let content_type = "content-type" [@@warning "-32"]
 end
 
 let meth t = t.meth
-
 let target t = t.request_target
-
 let http_version t = t.http_version
-
 let headers t = Hashtbl.to_seq t.headers |> List.of_seq
-
 let client_addr t = t.client_addr
 
 let rec pp_request fmt t =
@@ -343,7 +326,6 @@ and pp_encoder fmt coding =
   |> Format.fprintf fmt "%s"
 
 let request ctx = ctx.request
-
 let conn ctx = ctx.conn
 
 (**-- Processing body --*)
