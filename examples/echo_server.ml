@@ -15,18 +15,19 @@ let () =
   Arg.parse
     [("-p", Arg.Set_int port, " Listening port number (3000 by default)")]
     ignore "An echo HTTP server using summer!" ;
-  let rec read_content content_length reader context bufs =
+  let rec read_content content_length reader context body =
     Summer.read_content ~read_buf_size:10 content_length reader context
     >>= function
-    | `Content buf -> read_content content_length reader context (buf :: bufs)
-    | `End -> Lwt.return (Ok bufs)
+    | `Content buf ->
+        read_content content_length reader context (Cstruct.append body buf)
+    | `End -> Lwt.return (Ok body)
     | `Error e -> Lwt.return (Error e)
   in
-  let rec read_chunked reader context bufs =
+  let rec read_chunked reader context body =
     Summer.read_chunked reader context
     >>= function
-    | `Chunk {data; _} -> read_chunked reader context (data :: bufs)
-    | `End -> Lwt.return (Ok bufs)
+    | `Chunk {data; _} -> read_chunked reader context (Cstruct.append body data)
+    | `End -> Lwt.return (Ok body)
     | `Error e -> Lwt.return (Error e)
   in
   Summer.start ~port:!port (fun context ->
@@ -34,16 +35,15 @@ let () =
       ( match Summer.body_type req with
       | Ok (`Content len) ->
           let reader = Summer.body_reader context in
-          read_content len reader context []
+          read_content len reader context Cstruct.empty
       | Ok `Chunked ->
           let reader = Summer.body_reader context in
-          read_chunked reader context []
-      | Ok `None -> Lwt.return (Ok [Cstruct.empty])
+          read_chunked reader context Cstruct.empty
+      | Ok `None -> Lwt.return (Ok Cstruct.empty)
       | Ok _ -> failwith ""
       | Error _ -> Lwt.return (Error "") )
       >>= function
-      | Ok bufs ->
-          let body = List.rev bufs |> Cstruct.concat in
+      | Ok body ->
           let text =
             Format.sprintf "%s\n\n%s" (Summer.show_request req)
               (Cstruct.to_string body)
