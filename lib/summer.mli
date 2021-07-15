@@ -145,9 +145,10 @@ val read_chunked :
 
 val read_content :
      content_length
+  -> ?read_buf_size:int
   -> body_reader
   -> context
-  -> [`Body of Cstruct.t | `End | `Error of error] Lwt.t
+  -> [`Content of Cstruct.t | `End | `Error of error] Lwt.t
 
 (** {2 Response} *)
 

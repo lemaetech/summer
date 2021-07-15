@@ -526,23 +526,28 @@ let read_chunked reader context =
         return x
     | Error e -> return (`Error e))
 
-let read_content content_length reader _context =
-  let open Reparse_lwt_unix.Fd in
+let read_content content_length ?(read_buf_size = content_length) reader
+    _context =
   let content_parser reader content_length =
-    if reader.total_read < content_length then (
-      let len = content_length - reader.total_read in
-      let+ buf = unsafe_take_cstruct len <* trim_input_buffer in
-      reader.total_read <- reader.total_read + len ;
-      `Body buf )
-    else return `End
+    Reparse_lwt_unix.Fd.(
+      if reader.total_read < content_length then (
+        let total_unread = content_length - reader.total_read in
+        let read_buf_size =
+          if read_buf_size > total_unread then total_unread else read_buf_size
+        in
+        let+ buf = unsafe_take_cstruct_ne read_buf_size <* trim_input_buffer in
+        reader.total_read <- reader.total_read + Cstruct.length buf ;
+        `Content buf )
+      else return `End)
   in
-  Lwt.(
-    parse ~pos:reader.pos reader.input (content_parser reader content_length)
-    >>= function
-    | Ok (x, pos) ->
-        reader.pos <- pos ;
-        return x
-    | Error e -> return (`Error e))
+  Reparse_lwt_unix.Fd.(
+    Lwt.(
+      parse ~pos:reader.pos reader.input (content_parser reader content_length)
+      >>= function
+      | Ok (x, pos) ->
+          reader.pos <- pos ;
+          return x
+      | Error e -> return (`Error e)))
 
 let deflate_decode str =
   let i = De.bigstring_create De.io_buffer_size in
