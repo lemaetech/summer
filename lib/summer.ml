@@ -365,9 +365,9 @@ and content_body req =
   | Some content_length -> (
     try
       let len = int_of_string content_length in
-      match multipart_body len req with
+      match multipart_body req with
       | Ok `None -> Ok (`Content len)
-      | Ok (`Multipart _) as ok -> ok
+      | Ok (`Boundary boundary) -> Ok (`Multipart (len, boundary))
       | Error _ as err -> err
     with _ ->
       Error
@@ -375,12 +375,12 @@ and content_body req =
     )
   | None -> Ok `None
 
-and multipart_body content_length req =
+and multipart_body req =
   match Hashtbl.find_opt req.headers C.content_type with
   | None -> Ok `None
   | Some content_type -> (
     match Http_multipart_formdata.parse_boundary ~content_type with
-    | Ok boundary -> Ok (`Multipart (content_length, boundary))
+    | Ok boundary -> Ok (`Boundary boundary)
     | Error _ -> Ok `None )
 
 let body_reader context =
