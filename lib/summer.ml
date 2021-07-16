@@ -366,9 +366,8 @@ and content_body req =
     try
       let len = int_of_string content_length in
       match multipart_body req with
-      | Ok `None -> Ok (`Content len)
-      | Ok (`Boundary boundary) -> Ok (`Multipart (len, boundary))
-      | Error _ as err -> err
+      | `None -> Ok (`Content len)
+      | `Boundary boundary -> Ok (`Multipart (len, boundary))
     with _ ->
       Error
         (Format.sprintf "Invalid '%s' value: %s" C.content_length content_length)
@@ -377,11 +376,11 @@ and content_body req =
 
 and multipart_body req =
   match Hashtbl.find_opt req.headers C.content_type with
-  | None -> Ok `None
+  | None -> `None
   | Some content_type -> (
     match Http_multipart_formdata.parse_boundary ~content_type with
-    | Ok boundary -> Ok (`Boundary boundary)
-    | Error _ -> Ok `None )
+    | Ok boundary -> `Boundary boundary
+    | Error _ -> `None )
 
 let body_reader context =
   let input = Reparse_lwt_unix.Fd.create_input context.conn in
