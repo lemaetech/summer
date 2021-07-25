@@ -378,7 +378,7 @@ and multipart_body req =
   match Hashtbl.find_opt req.headers C.content_type with
   | None -> `None
   | Some content_type -> (
-    match Http_multipart_formdata.parse_boundary ~content_type with
+    match Http_multipart_formdata.boundary content_type with
     | Ok boundary -> `Boundary boundary
     | Error _ -> `None )
 
