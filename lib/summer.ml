@@ -53,8 +53,6 @@ and body_reader =
 
 and content_length = int
 
-and boundary = Http_multipart_formdata.boundary
-
 (*-- Handler and context --*)
 and 'a handler = context -> 'a Lwt.t
 

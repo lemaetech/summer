@@ -1,11 +1,4 @@
 (executable
  (name echo_server)
  (modules echo_server)
- (libraries summer lwt)
- (preprocess
-  (pps lwt_ppx)))
-
-(executable
- (name chunked_server)
- (modules chunked_server)
- (libraries summer cstruct lwt))
+ (libraries summer lwt))

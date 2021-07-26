@@ -34,8 +34,6 @@ and body_reader
 
 and content_length = int
 
-and boundary = Http_multipart_formdata.boundary
-
 (** [header] represents a HTTP header, a tuple of (name * value) *)
 and header = string * string
 
