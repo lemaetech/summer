@@ -15,8 +15,6 @@ let _debug_on =
     | _ -> true
     | exception _ -> false )
 
-let _enable_debug b = _debug_on := b
-
 let _debug k =
   if !_debug_on then
     k (fun fmt ->
@@ -103,24 +101,6 @@ module Make_common (P : Reparse.PARSER) = struct
       (field_name, field_value)
     in
     take header_field
-end
-
-module Option = struct
-  include Option
-
-  let ( >>= ) b f = Option.bind b f [@@warning "-32"]
-  let ( >>| ) b f = Option.map f b [@@warning "-32"]
-  let ( let* ) = ( >>= ) [@@warning "-32"]
-  let ( let+ ) = ( >>| ) [@@warning "-32"]
-end
-
-module Result = struct
-  include Result
-
-  let ( >>= ) b f = Result.bind b f [@@warning "-32"]
-  let ( >>| ) b f = Result.map f b [@@warning "-32"]
-  let ( let* ) = ( >>= ) [@@warning "-32"]
-  let ( let+ ) = ( >>| ) [@@warning "-32"]
 end
 
 module C = struct
