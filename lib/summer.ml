@@ -59,53 +59,56 @@ and context =
   ; request: request
   ; response_headers: (string, string) Hashtbl.t }
 
-(*-- Request --*)
+(* Parsers *)
 
-module Make_common (P : Reparse.PARSER) = struct
-  open P
+open Angstrom
 
-  let pair a b = (a, b)
+let pair a b = (a, b)
 
-  let _peek_dbg n =
-    let+ s = peek_string n in
-    _debug (fun k -> k "peek: %s\n%!" s)
+let _peek_dbg n =
+  let+ s = peek_string n in
+  _debug (fun k -> k "peek: %s\n%!" s)
 
-  (*-- https://datatracker.ietf.org/doc/html/rfc7230#appendix-B --*)
-  let tchar =
-    char_if (function
-      | '!' | '#' | '$' | '%' | '&' | '\'' | '*' | '+' | '-' | '.' | '^' | '_'
-       |'`' | '|' | '~' ->
-          true
-      | _ -> false )
-    <|> digit <|> alpha
+(*-- https://datatracker.ietf.org/doc/html/rfc7230#appendix-B --*)
 
-  let token = take ~at_least:1 tchar >>= string_of_chars
-  let ows = skip (space <|> htab) *> unit
+let token =
+  take_while1 (function
+    | '0' .. '9'
+     |'a' .. 'z'
+     |'A' .. 'Z'
+     |'!' | '#' | '$' | '%' | '&' | '\'' | '*' | '+' | '-' | '.' | '^' | '_'
+     |'`' | '|' | '~' ->
+        true
+    | _ -> false )
 
-  (*-- https://datatracker.ietf.org/doc/html/rfc7230#section-3.2 --*)
-  let header_fields =
-    let header_field =
-      let* field_name = token <* char ':' <* ows >>| String.lowercase_ascii in
-      let+ field_value =
-        let field_content =
-          let c2 =
-            optional
-              (let* c1 = skip ~at_least:1 (space <|> htab) *> vchar in
-               string_of_chars [' '; c1] )
-            >>| function Some s -> s | None -> ""
-          in
-          (vchar, c2) <$$> fun c1 c2 -> Format.sprintf "%c%s" c1 c2
+let space = char '\x20'
+let htab = char '\t'
+let ows = skip_many (space <|> htab)
+let optional x = option None (x >>| Option.some)
+let vchar = satisfy (function '\x21' .. '\x7E' -> true | _ -> false)
+let crlf = string_ci "\r\n" <?> "[crlf]"
+
+(*-- https://datatracker.ietf.org/doc/html/rfc7230#section-3.2 --*)
+let header_fields =
+  let header_field =
+    let* field_name = token <* char ':' <* ows >>| String.lowercase_ascii in
+    let+ field_value =
+      let field_content =
+        let c2 =
+          optional
+            (let+ c1 = skip_many1 (space <|> htab) *> vchar in
+             Format.sprintf " %c" c1 )
+          >>| function Some s -> s | None -> ""
         in
-        take field_content >>| String.concat "" <* crlf <* trim_input_buffer
+        lift2 (fun c1 c2 -> Format.sprintf "%c%s" c1 c2) vchar c2
       in
-      (field_name, field_value)
+      many field_content >>| String.concat "" <* crlf <* commit
     in
-    take header_field
-end
+    (field_name, field_value)
+  in
+  many header_field
 
-module C = struct
-  let content_length = "content-length"
-end
+module C = struct end
 
 let meth t = t.meth
 let target t = t.request_target
@@ -150,55 +153,15 @@ let show_request t =
   pp_request fmt t ; Format.fprintf fmt "%!" ; Buffer.contents buf
 
 let content_length request =
-  match Hashtbl.find_opt request.headers C.content_length with
-  | Some content_length -> (
-    try Ok (int_of_string content_length)
+  let content_length = "content-length" in
+  match Hashtbl.find_opt request.headers content_length with
+  | Some len -> (
+    try Ok (int_of_string len)
     with _ ->
-      Error
-        (Format.sprintf "Invalid '%s' value: %s" C.content_length content_length)
-    )
-  | None -> Error (Format.sprintf "%s header not found" C.content_length)
+      Error (Format.sprintf "Invalid '%s' value: %s" content_length len) )
+  | None -> Error (Format.sprintf "%s header not found" content_length)
 
-(*-- request-line = method SP request-target SP HTTP-version CRLF -- *)
-let request_line =
-  let open Reparse_lwt_unix.Fd in
-  let open Make_common (Reparse_lwt_unix.Fd) in
-  let* meth = token <* space in
-  let* request_target =
-    take_while ~while_:(is_not space) unsafe_any_char
-    >>= string_of_chars <* space
-  in
-  let* http_version =
-    (*-- https://datatracker.ietf.org/doc/html/rfc7230#section-2.6 --*)
-    (string_cs "HTTP/" *> digit <* char '.', digit)
-    <$$> pair <* crlf
-    >>= fun (major, minor) ->
-    if Char.equal major '1' && Char.equal minor '1' then return (1, 1)
-    else Format.sprintf "Invalid HTTP version: (%c,%c)" major minor |> fail
-  in
-  trim_input_buffer *> return (meth, request_target, http_version)
-
-let request_meta =
-  let open Reparse_lwt_unix.Fd in
-  let open Make_common (Reparse_lwt_unix.Fd) in
-  (request_line, header_fields) <$$> pair <* crlf
-
-let rec create_request (client_addr : Lwt_unix.sockaddr) fd =
-  let open Reparse_lwt_unix.Fd in
-  let open Make_common (Reparse_lwt_unix.Fd) in
-  let input = Reparse_lwt_unix.Fd.create_input fd in
-  Lwt_result.(
-    parse input request_meta
-    >|= fun ((request_line, headers), _) ->
-    let meth, request_target, http_version = request_line in
-    let meth = parse_meth meth in
-    { meth
-    ; request_target
-    ; http_version
-    ; headers= List.to_seq headers |> Hashtbl.of_seq
-    ; client_addr })
-
-and parse_meth meth =
+let meth meth =
   String.uppercase_ascii meth
   |> function
   | "GET" -> `GET
@@ -210,6 +173,34 @@ and parse_meth meth =
   | "OPTIONS" -> `OPTIONS
   | "TRACE" -> `TRACE
   | header -> `Method header
+
+(*-- request-line = method SP request-target SP HTTP-version CRLF -- *)
+let request_line =
+  let* meth = token >>| meth <* space in
+  let* request_target =
+    take_bigstring_till (fun c -> c != ' ') >>| Bigstringaf.to_string <* space
+  in
+  let digit = satisfy (function '0' .. '9' -> true | _ -> false) in
+  let* http_version =
+    (*-- https://datatracker.ietf.org/doc/html/rfc7230#section-2.6 --*)
+    lift2 pair (string "HTTP/" *> digit <* char '.') digit
+    <* crlf
+    >>= fun (major, minor) ->
+    if Char.equal major '1' && Char.equal minor '1' then return (1, 1)
+    else fail (Format.sprintf "Invalid HTTP version: (%c,%c)" major minor)
+  in
+  commit *> return (meth, request_target, http_version)
+
+let request client_addr =
+  lift2 pair request_line header_fields
+  <* crlf
+  >>| fun (request_line, headers) ->
+  let meth, request_target, http_version = request_line in
+  { meth
+  ; request_target
+  ; http_version
+  ; headers= List.to_seq headers |> Hashtbl.of_seq
+  ; client_addr }
 
 (*-- Request --*)
 

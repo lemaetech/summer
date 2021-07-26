@@ -3,12 +3,10 @@
  (public_name summer)
  (libraries
   cstruct
-  bigstringaf
-  decompress.de
-  decompress.gz
   reparse
   reparse-lwt-unix
   http-multipart-formdata
+  angstrom
   lwt
   lwt.unix
   fmt))
