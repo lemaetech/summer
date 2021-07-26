@@ -101,20 +101,6 @@ val show_request : request -> string
 
 val conn : context -> Lwt_unix.file_descr
 
-(** {2 deflate content encoding, decoding} *)
-
-val deflate_decode : Cstruct.buffer -> (string, error) result
-val deflate_encode : Cstruct.buffer -> string
-
-(** {2 gzip content encoding, decoding} *)
-
-val gzip_decode : Cstruct.buffer -> (string, error) result
-val gzip_encode : ?level:int -> Cstruct.buffer -> string
-
-val supported_encodings : encoding list
-(** [supported_encodings] returns a list of encoding supported by [Summer]
-    HTTP/1.1 web server. The following encodings are supported: [gzip,deflate] *)
-
 (** {2 Reading Request Body} *)
 
 val body_type : request -> (body_type, error) result

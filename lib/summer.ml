@@ -365,23 +365,22 @@ and content_body req =
   | Some content_length -> (
     try
       let len = int_of_string content_length in
-      match multipart_body len req with
-      | Ok `None -> Ok (`Content len)
-      | Ok (`Multipart _) as ok -> ok
-      | Error _ as err -> err
+      match multipart_body req with
+      | `None -> Ok (`Content len)
+      | `Boundary boundary -> Ok (`Multipart (len, boundary))
     with _ ->
       Error
         (Format.sprintf "Invalid '%s' value: %s" C.content_length content_length)
     )
   | None -> Ok `None
 
-and multipart_body content_length req =
+and multipart_body req =
   match Hashtbl.find_opt req.headers C.content_type with
-  | None -> Ok `None
+  | None -> `None
   | Some content_type -> (
-    match Http_multipart_formdata.parse_boundary ~content_type with
-    | Ok boundary -> Ok (`Multipart (content_length, boundary))
-    | Error _ -> Ok `None )
+    match Http_multipart_formdata.boundary content_type with
+    | Ok boundary -> `Boundary boundary
+    | Error _ -> `None )
 
 let body_reader context =
   let input = Reparse_lwt_unix.Fd.create_input context.conn in
@@ -526,91 +525,6 @@ let read_content content_length ?(read_buf_size = content_length) reader
           reader.pos <- pos ;
           return x
       | Error e -> return (`Error e)))
-
-let deflate_decode str =
-  let i = De.bigstring_create De.io_buffer_size in
-  let o = De.bigstring_create De.io_buffer_size in
-  let w = De.make_window ~bits:15 in
-  let r = Buffer.create 0x1000 in
-  let p = ref 0 in
-  let refill buf =
-    let len = min (Bigstringaf.length str - !p) De.io_buffer_size in
-    Bigstringaf.blit str ~src_off:!p buf ~dst_off:0 ~len ;
-    p := !p + len ;
-    len
-  in
-  let flush buf len =
-    let str = Bigstringaf.substring buf ~off:0 ~len in
-    Buffer.add_string r str
-  in
-  match De.Higher.uncompress ~w ~refill ~flush i o with
-  | Ok () -> Ok (Buffer.contents r)
-  | Error (`Msg s) -> Error s
-
-let deflate_encode str =
-  let i = De.bigstring_create De.io_buffer_size in
-  let o = De.bigstring_create De.io_buffer_size in
-  let w = De.Lz77.make_window ~bits:15 in
-  let q = De.Queue.create 0x1000 in
-  let r = Buffer.create 0x1000 in
-  let p = ref 0 in
-  let refill buf =
-    let len = min (Bigstringaf.length str - !p) De.io_buffer_size in
-    Bigstringaf.blit str ~src_off:!p buf ~dst_off:0 ~len ;
-    p := !p + len ;
-    len
-  in
-  let flush buf len =
-    let str = Bigstringaf.substring buf ~off:0 ~len in
-    Buffer.add_string r str
-  in
-  De.Higher.compress ~w ~q ~refill ~flush i o ;
-  Buffer.contents r
-
-let gzip_decode (str : Bigstringaf.t) =
-  let i = De.bigstring_create De.io_buffer_size in
-  let o = De.bigstring_create De.io_buffer_size in
-  let r = Buffer.create 0x1000 in
-  let p = ref 0 in
-  let refill buf =
-    let len = min (Bigstringaf.length str - !p) De.io_buffer_size in
-    Bigstringaf.blit str ~src_off:!p buf ~dst_off:0 ~len ;
-    p := !p + len ;
-    len
-  in
-  let flush buf len =
-    let str = Bigstringaf.substring buf ~off:0 ~len in
-    Buffer.add_string r str
-  in
-  match Gz.Higher.uncompress ~refill ~flush i o with
-  | Ok (_ : Gz.Higher.metadata) -> Ok (Buffer.contents r)
-  | Error (`Msg err) -> Error err
-
-let time () = Int32.of_float (Unix.gettimeofday ())
-
-let gzip_encode ?(level = 4) (str : Bigstringaf.t) =
-  let i = De.bigstring_create De.io_buffer_size in
-  let o = De.bigstring_create De.io_buffer_size in
-  let w = De.Lz77.make_window ~bits:15 in
-  let q = De.Queue.create 0x1000 in
-  let r = Buffer.create 0x1000 in
-  let p = ref 0 in
-  let cfg = Gz.Higher.configuration Gz.Unix time in
-  let refill buf =
-    let len = min (Bigstringaf.length str - !p) De.io_buffer_size in
-    Bigstringaf.blit str ~src_off:!p buf ~dst_off:0 ~len ;
-    p := !p + len ;
-    len
-  in
-  let flush buf len =
-    let str = Bigstringaf.substring buf ~off:0 ~len in
-    Buffer.add_string r str
-  in
-  Gz.Higher.compress ~w ~q ~level ~refill ~flush () cfg i o ;
-  Buffer.contents r
-
-let supported_encodings : encoding list =
-  [{encoder= `Gzip; weight= Some 1.0}; {encoder= `Deflate; weight= Some 0.0}]
 
 open Lwt.Infix
 module IO_vector = Lwt_unix.IO_vectors
