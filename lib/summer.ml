@@ -51,9 +51,6 @@ and body_reader =
   ; mutable pos: Reparse_lwt_unix.Fd.pos
   ; mutable total_read: int }
 
-and body_type =
-  [`Content of content_length | `Multipart of content_length * boundary | `None]
-
 and content_length = int
 
 and boundary = Http_multipart_formdata.boundary

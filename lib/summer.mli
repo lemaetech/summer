@@ -32,9 +32,6 @@ and meth =
 (** Represents a request body reader *)
 and body_reader
 
-and body_type =
-  [`Content of content_length | `Multipart of content_length * boundary | `None]
-
 and content_length = int
 
 and boundary = Http_multipart_formdata.boundary
