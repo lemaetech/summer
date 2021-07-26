@@ -23,25 +23,12 @@ let () =
     | `End -> Lwt.return (Ok body)
     | `Error e -> Lwt.return (Error e)
   in
-  let rec read_chunked reader context body =
-    Summer.read_chunked reader context
-    >>= function
-    | `Chunk {data; _} -> read_chunked reader context (Cstruct.append body data)
-    | `End -> Lwt.return (Ok body)
-    | `Error e -> Lwt.return (Error e)
-  in
   Summer.start ~port:!port (fun context ->
       let req = Summer.request context in
-      ( match Summer.body_type req with
-      | Ok (`Content len) ->
-          let reader = Summer.body_reader context in
-          read_content len reader context Cstruct.empty
-      | Ok `Chunked ->
-          let reader = Summer.body_reader context in
-          read_chunked reader context Cstruct.empty
-      | Ok `None -> Lwt.return (Ok Cstruct.empty)
-      | Ok _ -> failwith ""
-      | Error _ -> Lwt.return (Error "") )
+      let reader = Summer.body_reader context in
+      Lwt_result.(
+        lift (Summer.content_length req)
+        >>= fun len -> read_content len reader context Cstruct.empty)
       >>= function
       | Ok body ->
           let text =

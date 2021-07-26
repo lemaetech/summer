@@ -52,23 +52,11 @@ and body_reader =
   ; mutable total_read: int }
 
 and body_type =
-  [ `Chunked
-  | `Content of content_length
-  | `Multipart of content_length * boundary
-  | `None ]
+  [`Content of content_length | `Multipart of content_length * boundary | `None]
 
 and content_length = int
 
 and boundary = Http_multipart_formdata.boundary
-
-and chunk_body = {data: Cstruct.t; chunk_extensions: chunk_extension list}
-
-and chunk_extension = {name: string; value: string option}
-
-and encoding = {encoder: encoder; weight: float option}
-
-and encoder =
-  [`Compress | `Deflate | `Gzip | `Br | `Any | `None | `Other of string]
 
 (*-- Handler and context --*)
 and 'a handler = context -> 'a Lwt.t
@@ -141,13 +129,7 @@ module Result = struct
 end
 
 module C = struct
-  let transfer_encoding = "transfer-encoding"
-  let trailer = "trailer"
   let content_length = "content-length"
-  let chunked = "chunked"
-  let accept_encoding = "accept-encoding"
-  let content_encoding = "content-encoding" [@@warning "-32"]
-  let content_type = "content-type" [@@warning "-32"]
 end
 
 let meth t = t.meth
@@ -192,14 +174,6 @@ let show_request t =
   let fmt = Format.formatter_of_buffer buf in
   pp_request fmt t ; Format.fprintf fmt "%!" ; Buffer.contents buf
 
-let coding = function
-  | "compress" | "x-compress" -> `Compress
-  | "deflate" -> `Deflate
-  | "gzip" | "x-gzip" -> `Gzip
-  | "*" -> `Any
-  | "" -> `None
-  | enc -> `Other enc
-
 let content_length request =
   match Hashtbl.find_opt request.headers C.content_length with
   | Some content_length -> (
@@ -209,49 +183,6 @@ let content_length request =
         (Format.sprintf "Invalid '%s' value: %s" C.content_length content_length)
     )
   | None -> Error (Format.sprintf "%s header not found" C.content_length)
-
-let accept_encoding t =
-  let open Reparse.String in
-  let open Make_common (Reparse.String) in
-  let weight =
-    let qvalue1 =
-      char '0' *> optional (char '.' *> take ~up_to:3 digit)
-      >>= function
-      | Some l -> string_of_chars ('0' :: '.' :: l) >>| float_of_string
-      | None -> return 0.
-    in
-    let qvalue2 =
-      char '1' *> optional (char '.' *> take ~up_to:3 (char '0'))
-      >>= function
-      | Some l -> string_of_chars ('1' :: '.' :: l) >>| float_of_string
-      | None -> return 1.
-    in
-    let qvalue = qvalue1 <|> qvalue2 in
-    ows *> char ';' *> ows *> string_ci "q=" *> qvalue
-  in
-  let accept_encoding_parser =
-    let content_coding = token in
-    let codings =
-      content_coding <|> string_ci "identity" <|> string_cs "*" >>| coding
-    in
-    take
-      ((codings, optional weight) <$$> fun encoder weight -> {encoder; weight})
-  in
-  match Hashtbl.find_opt t.headers C.accept_encoding with
-  | Some enc ->
-      if String.(trim enc |> length) = 0 then Ok [{encoder= `None; weight= None}]
-      else
-        Reparse.String.(
-          parse (create_input_from_string enc) accept_encoding_parser)
-        |> Result.map (fun (x, _) -> x)
-  | None -> Ok []
-
-let content_encoding t =
-  match Hashtbl.find_opt t.headers C.accept_encoding with
-  | Some enc ->
-      String.split_on_char ',' enc
-      |> List.map (fun enc -> String.trim enc |> coding)
-  | None -> []
 
 (*-- request-line = method SP request-target SP HTTP-version CRLF -- *)
 let request_line =
@@ -307,201 +238,12 @@ and parse_meth meth =
 
 (*-- Request --*)
 
-let rec pp_encoding fmt t =
-  let fields =
-    [ Fmt.field "name" (fun p -> p.encoder) pp_encoder
-    ; Fmt.field "weight" (fun p -> p.weight) Fmt.(option float) ]
-  in
-  Fmt.record fields fmt t
-
-and pp_encoder fmt coding =
-  ( match coding with
-  | `Compress -> "compress"
-  | `Deflate -> "deflate"
-  | `Gzip -> "gzip"
-  | `Br -> "br"
-  | `Any -> "*"
-  | `None -> ""
-  | `Other enc -> Format.sprintf "Other (%s)" enc )
-  |> Format.fprintf fmt "%s"
-
 let request ctx = ctx.request
 let conn ctx = ctx.conn
-
-(**-- Processing body --*)
-
-(** Determine request body type in the order given below,
-
-    - If [Transfer-Encoding: chunked] is present then [`Chunked]
-    - If [Content-Length: len] is present and [Content-Type: multipart/formdata]
-      is present then [`Multipart boundary] else [`Content len]
-    - Else [`None] *)
-let rec body_type request =
-  match chunked_body request with
-  | Ok `None -> content_body request
-  | Ok `Chunked as ok -> ok
-  | Error _ as err -> err
-
-and chunked_body req =
-  match Hashtbl.find_opt req.headers C.transfer_encoding with
-  | Some te -> (
-      let codings =
-        List.(String.split_on_char ',' te |> map String.trim |> rev)
-      in
-      match List.hd codings with
-      | exception _ ->
-          Error
-            (Format.sprintf
-               "Invalid header '%s'. You need to specify at least one coding. \
-                Please see \
-                https://datatracker.ietf.org/doc/html/rfc7230#section-3.3.1"
-               C.transfer_encoding )
-      | coding when String.equal coding C.chunked -> Result.ok `Chunked
-      | _ -> Result.ok `None )
-  | None -> Result.ok `None
-
-and content_body req =
-  match Hashtbl.find_opt req.headers C.content_length with
-  | Some content_length -> (
-    try
-      let len = int_of_string content_length in
-      match multipart_body req with
-      | `None -> Ok (`Content len)
-      | `Boundary boundary -> Ok (`Multipart (len, boundary))
-    with _ ->
-      Error
-        (Format.sprintf "Invalid '%s' value: %s" C.content_length content_length)
-    )
-  | None -> Ok `None
-
-and multipart_body req =
-  match Hashtbl.find_opt req.headers C.content_type with
-  | None -> `None
-  | Some content_type -> (
-    match Http_multipart_formdata.boundary content_type with
-    | Ok boundary -> `Boundary boundary
-    | Error _ -> `None )
 
 let body_reader context =
   let input = Reparse_lwt_unix.Fd.create_input context.conn in
   {input; pos= 0; total_read= 0}
-
-let read_chunked reader context =
-  let chunk_parser reader =
-    let open Reparse_lwt_unix.Fd in
-    let open Make_common (Reparse_lwt_unix.Fd) in
-    let quoted_pair = char '\\' *> (whitespace <|> vchar) in
-    (*-- qdtext = HTAB / SP /%x21 / %x23-5B / %x5D-7E / obs-text -- *)
-    let qdtext =
-      htab <|> space <|> char '\x21'
-      <|> char_if (function
-            | '\x23' .. '\x5B' -> true
-            | '\x5D' .. '\x7E' -> true
-            | _ -> false )
-    in
-    (*-- quoted-string = DQUOTE *( qdtext / quoted-pair ) DQUOTE --*)
-    let quoted_string =
-      take_between ~start:(char '"')
-        (take (qdtext <|> quoted_pair) >>= string_of_chars)
-        ~end_:(char '"')
-      >>| String.concat ""
-    in
-    (*-- https://datatracker.ietf.org/doc/html/rfc7230#section-4.1 --*)
-    let chunk_ext =
-      let chunk_ext_name = token in
-      let chunk_ext_val = quoted_string <|> token in
-      take
-        ( (char ';' *> chunk_ext_name, optional (char '=' *> chunk_ext_val))
-        <$$> fun name value : chunk_extension -> {name; value} )
-      <?> "[chunk_ext]"
-    in
-    let chunk_size =
-      take ~at_least:1 hex_digit >>= string_of_chars
-      >>= fun sz ->
-      try return (Format.sprintf "0x%s" sz |> int_of_string)
-      with _ -> fail (Format.sprintf "[chunk_size] Invalid chunk_size: %s" sz)
-    in
-    (* Chunk decoding algorithm is explained at
-       https://datatracker.ietf.org/doc/html/rfc7230#section-4.1.3 *)
-    let* size, chunk_extensions = (chunk_size, chunk_ext <* crlf) <$$> pair in
-    if size > 0 then (
-      let+ data = unsafe_take_cstruct size <* trim_input_buffer in
-      reader.total_read <- reader.total_read + size ;
-      `Chunk {data; chunk_extensions} )
-    else if size = 0 then (
-      (* If chunk size is 0 then read the chunk trailers and update the context
-         request.
-
-         The spec at https://datatracker.ietf.org/doc/html/rfc7230#section-4.1.3
-         specifies that 'Content-Length' and 'Transfer-Encoding' headers must be
-         updated. *)
-      let request_headers = context.request.headers in
-      (* Be strict about headers allowed in trailer headers to minimize security
-         issues, eg. request smuggling attack -
-         https://portswigger.net/web-security/request-smuggling
-
-         Allowed headers are defined in 2nd paragraph of
-         https://datatracker.ietf.org/doc/html/rfc7230#section-4.1.2 *)
-      let is_trailer_header_allowed = function
-        | "transfer-encoding" | "content-length" | "host"
-        (* Request control headers are not allowed. *)
-         |"cache-control" | "expect" | "max-forwards" | "pragma" | "range"
-         |"te"
-        (* Authentication headers are not allowed. *)
-         |"www-authenticate" | "authorization" | "proxy-authenticate"
-         |"proxy-authorization"
-        (* Cookie headers are not allowed. *)
-         |"cookie" | "set-cookie"
-        (* Response control data headers are not allowed. *)
-         |"age" | "expires" | "date" | "location" | "retry-after" | "vary"
-         |"warning"
-        (* Headers to process the payload are not allowed. *)
-         |"content-encoding" | "content-type" | "content-range" | "trailer" ->
-            false
-        | _ -> true
-      in
-      let+ trailer_headers =
-        let trailer_specified_headers =
-          Hashtbl.find_opt request_headers C.trailer
-          |> function
-          | Some v -> String.split_on_char ',' v |> List.map String.trim
-          | None -> []
-        in
-        let+ headers = header_fields <* crlf <* trim_input_buffer in
-        List.filter
-          (fun (name, _) ->
-            List.mem name trailer_specified_headers
-            && is_trailer_header_allowed name )
-          headers
-      in
-      List.iter
-        (fun (key, value) -> Hashtbl.replace request_headers key value)
-        trailer_headers ;
-      (* Remove either just the 'chunked' from Transfer-Encoding header value or
-         remove the header entirely. *)
-      Hashtbl.find request_headers C.transfer_encoding
-      |> String.split_on_char ',' |> List.map String.trim
-      |> List.filter (fun e -> not (String.equal e C.chunked))
-      |> String.concat ","
-      |> fun te ->
-      if String.length te > 0 then
-        Hashtbl.replace request_headers C.transfer_encoding te
-      else Hashtbl.remove request_headers C.transfer_encoding ;
-      (* Remove Trailer header. *)
-      Hashtbl.remove request_headers C.trailer ;
-      (* Add/Update Content-Length header. *)
-      Hashtbl.replace request_headers C.content_length
-        (string_of_int reader.total_read) ;
-      `End )
-    else fail (Format.sprintf "Invalid chunk size: %d" size)
-  in
-  Lwt.(
-    Reparse_lwt_unix.Fd.parse ~pos:reader.pos reader.input (chunk_parser reader)
-    >>= function
-    | Ok (x, pos) ->
-        reader.pos <- pos ;
-        return x
-    | Error e -> return (`Error e))
 
 let read_content content_length ?(read_buf_size = content_length) reader
     _context =

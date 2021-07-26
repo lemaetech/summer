@@ -33,49 +33,17 @@ and meth =
 and body_reader
 
 and body_type =
-  [ `Chunked
-  | `Content of content_length
-  | `Multipart of content_length * boundary
-  | `None ]
+  [`Content of content_length | `Multipart of content_length * boundary | `None]
 
 and content_length = int
 
 and boundary = Http_multipart_formdata.boundary
-
-(** Represents a chunk of data read by {!type:body_reader}. *)
-and chunk_body = {data: Cstruct.t; chunk_extensions: chunk_extension list}
-
-(** [chunk_extension] is an optional component of a chunk. It is defined at
-    https://datatracker.ietf.org/doc/html/rfc7230#section-4.1.1 *)
-and chunk_extension = {name: string; value: string option}
 
 (** [header] represents a HTTP header, a tuple of (name * value) *)
 and header = string * string
 
 (** [error] represents an error string *)
 and error = string
-
-(** [accept_encoding] represents [Accept-Encoding] and [Content-Encoding] header
-    values. https://datatracker.ietf.org/doc/html/rfc7231#section-5.3.4 *)
-and encoding = {encoder: encoder; weight: float option}
-
-and encoder =
-  [ `Compress
-    (** Compress - https://datatracker.ietf.org/doc/html/rfc7230#section-4.2.1 *)
-  | `Deflate
-    (** Deflate - https://datatracker.ietf.org/doc/html/rfc7230#section-4.2.2 *)
-  | `Gzip
-    (** Gzip - https://datatracker.ietf.org/doc/html/rfc7230#section-4.2.3 *)
-  | `Br  (** Br (Brotli) - https://datatracker.ietf.org/doc/html/rfc7932 *)
-  | `Any
-    (** Represented by '*': The asterisk "*" symbol in an Accept-Encoding field
-        matches any available content-coding not explicitly listed in the header
-        field. *)
-  | `None
-    (** Represented by empty ("Accept-Encoding: ") encoding header value. *)
-  | `Other of string
-    (** Any other encoding - possibly a custom one - not specified by the HTTP
-        RFC 7230 or 7231 or 7932. *) ]
 
 (** ['a handler] represents a connection handler. *)
 and 'a handler = context -> 'a Lwt.t
@@ -92,8 +60,6 @@ val http_version : request -> int * int
 val headers : request -> header list
 val client_addr : request -> Lwt_unix.sockaddr
 val content_length : request -> (content_length, error) result
-val accept_encoding : request -> (encoding list, error) result
-val content_encoding : request -> encoder list
 val pp_request : Format.formatter -> request -> unit
 val show_request : request -> string
 
@@ -101,26 +67,8 @@ val show_request : request -> string
 
 val conn : context -> Lwt_unix.file_descr
 
-(** {2 Reading Request Body} *)
-
-val body_type : request -> (body_type, error) result
-
 val body_reader : context -> body_reader
 (** [body_reader context] returns a body_reader. *)
-
-val read_chunked :
-     body_reader
-  -> context
-  -> [`Chunk of chunk_body | `End | `Error of error] Lwt.t
-(** [read_body rdr] reads request body.
-
-    If [Transfer-Encoding] header is present then each [`Body body] represents a
-    request body 'chunk'. [body.chunk_extension] represents any chunk extensions
-    present in the request chunk and [body.size] represents the chunk size.
-
-    If [Content-Length] header is present then [`Body body] represents the
-    content body. [body.chunk_extension] is [List.empty] and [body.size]
-    represents the [Content-Length] value. *)
 
 val read_content :
      content_length
@@ -142,8 +90,3 @@ val respond_with_bigstring :
 
 val start : port:int -> unit handler -> unit
 (** [start port request_handler] Starts HTTP/1.1 server at [port]. *)
-
-(** {2 Pretty printers} *)
-
-val pp_encoder : Format.formatter -> encoder -> unit
-val pp_encoding : Format.formatter -> encoding -> unit
