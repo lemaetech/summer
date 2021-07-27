@@ -164,12 +164,9 @@ let header_fields =
 (*-- request-line = method SP request-target SP HTTP-version CRLF -- *)
 let request_line =
   let* meth = token >>| method_ <* space in
-  let* request_target =
-    take_bigstring_while1 (fun c -> c != ' ') >>| Bigstringaf.to_string <* space
-  in
+  let* request_target = take_while1 (fun c -> c != ' ') <* space in
   let digit = satisfy (function '0' .. '9' -> true | _ -> false) in
   let* http_version =
-    (*-- https://datatracker.ietf.org/doc/html/rfc7230#section-2.6 --*)
     lift2 pair (string "HTTP/" *> digit <* char '.') digit
     <* crlf
     >>= fun (major, minor) ->
