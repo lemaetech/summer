@@ -57,8 +57,6 @@ and request_body =
   | Partial of {body: Cstruct.t; continue: unit -> request_body Lwt.t}
   | Done
 
-(* Parsers *)
-
 let meth t = t.meth
 let target t = t.request_target
 let http_version t = t.http_version
@@ -120,8 +118,6 @@ let method_ meth =
   | "TRACE" -> `TRACE
   | header -> `Method header
 
-let pair a b = (a, b)
-
 (*-- https://datatracker.ietf.org/doc/html/rfc7230#appendix-B --*)
 
 let token =
@@ -167,9 +163,8 @@ let request_line =
   let* request_target = take_while1 (fun c -> c != ' ') <* space in
   let digit = satisfy (function '0' .. '9' -> true | _ -> false) in
   let* http_version =
-    lift2 pair (string "HTTP/" *> digit <* char '.') digit
-    <* crlf
-    >>= fun (major, minor) ->
+    let* major = string "HTTP/" *> digit <* char '.' in
+    let* minor = digit <* crlf in
     if Char.equal major '1' && Char.equal minor '1' then return (1, 1)
     else fail (Format.sprintf "Invalid HTTP version: (%c,%c)" major minor)
   in
