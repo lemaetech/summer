@@ -213,8 +213,8 @@ let request context client_addr =
         else reader.unconsumed <- None ;
         Lwt.return (Error (String.concat " > " marks ^ ": " ^ err))
   in
-  let+ result = read context (Buffered.parse request_or_eof) in
-  match result with Ok x -> x | Error x -> `Error x
+  let+ read_result = read context (Buffered.parse request_or_eof) in
+  match read_result with Ok x -> x | Error x -> `Error x
 
 open Lwt.Infix
 open Lwt.Syntax
@@ -223,20 +223,19 @@ let rec request_body ?(read_buffer_size = io_buffer_size) ~content_length t =
   if content_length = 0 then Lwt.return Done
   else
     let+ request_body =
-      read t.fd t.unconsumed ~content_length ~total_read:0 ~read_buffer_size
+      read t ~content_length ~total_read:0 ~read_buffer_size
     in
-    t.unconsumed <- None ;
     t.body_read <- true ;
     request_body
 
-and read fd unconsumed ~content_length ~total_read ~read_buffer_size =
+and read t ~content_length ~total_read ~read_buffer_size =
   if total_read < content_length then
     let total_unread = content_length - total_read in
     let buffer_size =
       if read_buffer_size > total_unread then total_unread else read_buffer_size
     in
     let* len', body, unconsumed =
-      match unconsumed with
+      match t.unconsumed with
       | Some buf' ->
           let len' = Cstruct.length buf' in
           if len' <= buffer_size then Lwt.return (len', buf', None)
@@ -249,12 +248,12 @@ and read fd unconsumed ~content_length ~total_read ~read_buffer_size =
             Lwt.return (buffer_size, buf'', Some unconsumed)
       | None ->
           let buf = Cstruct.create buffer_size in
-          let+ len' = Lwt_bytes.read fd buf.buffer 0 buffer_size in
+          let+ len' = Lwt_bytes.read t.fd buf.buffer 0 buffer_size in
           (len', buf, None)
     in
     let continue () =
-      read fd unconsumed ~content_length ~total_read:(total_read + len')
-        ~read_buffer_size
+      t.unconsumed <- unconsumed ;
+      read t ~content_length ~total_read:(total_read + len') ~read_buffer_size
     in
     Lwt.return (Partial {body; continue})
   else Lwt.return Done
