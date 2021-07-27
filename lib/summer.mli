@@ -29,48 +29,34 @@ and meth =
   | `TRACE
   | `Method of string ]
 
-(** Represents a request body reader *)
-and body_reader
-
-and content_length = int
-
 (** [header] represents a HTTP header, a tuple of (name * value) *)
 and header = string * string
 
-(** [error] represents an error string *)
-and error = string
-
 (** ['a handler] represents a connection handler. *)
-and 'a handler = context -> 'a Lwt.t
+and 'a handler = context -> request -> 'a Lwt.t
 
 (** [context] holds data for [handler] function. *)
 and context
 
+and request_body =
+  | Partial of {body: Cstruct.t; continue: unit -> request_body Lwt.t}
+  | Done
+
 (** {2 Request} *)
 
-val request : context -> request
 val meth : request -> meth
 val target : request -> string
 val http_version : request -> int * int
 val headers : request -> header list
 val client_addr : request -> Lwt_unix.sockaddr
-val content_length : request -> (content_length, error) result
+val content_length : request -> (int, string) result
 val pp_request : Format.formatter -> request -> unit
 val show_request : request -> string
 
 (** {2 Context} *)
 
-val conn : context -> Lwt_unix.file_descr
-
-val body_reader : context -> body_reader
-(** [body_reader context] returns a body_reader. *)
-
-val read_content :
-     content_length
-  -> ?read_buf_size:int
-  -> body_reader
-  -> context
-  -> [`Content of Cstruct.t | `End | `Error of error] Lwt.t
+val request_body :
+  ?read_buffer_size:int -> content_length:int -> context -> request_body Lwt.t
 
 (** {2 Response} *)
 
@@ -79,7 +65,8 @@ val respond_with_bigstring :
   -> reason_phrase:string
   -> content_type:string
   -> Cstruct.buffer
-  -> unit handler
+  -> context
+  -> unit Lwt.t
 
 (** {2 HTTP server} *)
 

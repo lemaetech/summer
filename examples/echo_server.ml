@@ -15,20 +15,22 @@ let () =
   Arg.parse
     [("-p", Arg.Set_int port, " Listening port number (3000 by default)")]
     ignore "An echo HTTP server using summer!" ;
-  let rec read_content content_length reader context body =
-    Summer.read_content ~read_buf_size:10 content_length reader context
+  let rec read_content content_length context body state =
+    state
     >>= function
-    | `Content buf ->
-        read_content content_length reader context (Cstruct.append body buf)
-    | `End -> Lwt.return (Ok body)
-    | `Error e -> Lwt.return (Error e)
+    | Summer.Partial {body= buf; continue} ->
+        read_content content_length context (Cstruct.append body buf)
+          (continue ())
+    | Done -> Lwt.return (Ok body)
   in
-  Summer.start ~port:!port (fun context ->
-      let req = Summer.request context in
-      let reader = Summer.body_reader context in
+  Summer.start ~port:!port (fun context req ->
       Lwt_result.(
         lift (Summer.content_length req)
-        >>= fun len -> read_content len reader context Cstruct.empty)
+        >>= fun len ->
+        let state =
+          Summer.request_body ~read_buffer_size:10 ~content_length:len context
+        in
+        read_content len context Cstruct.empty state)
       >>= function
       | Ok body ->
           let text =
