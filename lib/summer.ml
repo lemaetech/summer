@@ -104,11 +104,8 @@ let show_request t =
 let content_length request =
   let content_length = "content-length" in
   match Hashtbl.find_opt request.headers content_length with
-  | Some len -> (
-    try Ok (int_of_string len)
-    with _ ->
-      Error (Format.sprintf "Invalid '%s' value: %s" content_length len) )
-  | None -> Error (Format.sprintf "%s header not found" content_length)
+  | Some len -> ( try int_of_string len with _ -> 0 )
+  | None -> 0
 
 let method_ meth =
   String.uppercase_ascii meth
@@ -183,13 +180,13 @@ let request_line =
 
 let request context client_addr =
   let p =
-    lift2 pair request_line header_fields
-    >>| (fun ((meth, request_target, http_version), headers) ->
-          { meth
-          ; request_target
-          ; http_version
-          ; headers= List.to_seq headers |> Hashtbl.of_seq
-          ; client_addr } )
+    (let* meth, request_target, http_version = request_line in
+     let+ headers = header_fields in
+     { meth
+     ; request_target
+     ; http_version
+     ; headers= List.to_seq headers |> Hashtbl.of_seq
+     ; client_addr } )
     <* crlf
   in
   let unix_buffer_size = 65536 (* UNIX_BUFFER_SIZE 4.0.0 *) in

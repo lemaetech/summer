@@ -49,7 +49,7 @@ val target : request -> string
 val http_version : request -> int * int
 val headers : request -> header list
 val client_addr : request -> Lwt_unix.sockaddr
-val content_length : request -> (int, string) result
+val content_length : request -> int
 val pp_request : Format.formatter -> request -> unit
 val show_request : request -> string
 
