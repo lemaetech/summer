@@ -216,7 +216,11 @@ let request context client_addr =
   in
   read context (Buffered.parse p)
 
-let rec read fd unconsumed ~content_length ~total_read ~read_buffer_size =
+let rec request_body ?(read_buffer_size = 1024) ~content_length context =
+  read context.fd context.unconsumed ~content_length ~total_read:0
+    ~read_buffer_size
+
+and read fd unconsumed ~content_length ~total_read ~read_buffer_size =
   let open Lwt.Syntax in
   if total_read < content_length then
     let total_unread = content_length - total_read in
@@ -239,10 +243,6 @@ let rec read fd unconsumed ~content_length ~total_read ~read_buffer_size =
       Lwt.return (Partial {body= buf; continue}) )
     else Lwt.return (Partial {body= buf; continue})
   else Lwt.return Done
-
-let request_body ?(read_buffer_size = 1024) ~content_length context =
-  read context.fd context.unconsumed ~content_length ~total_read:0
-    ~read_buffer_size
 
 open Lwt.Infix
 module IO_vector = Lwt_unix.IO_vectors
