@@ -171,11 +171,15 @@ let request_line =
   commit *> return (meth, request_target, http_version)
 
 let request context client_addr =
-  let p =
-    (let* meth, request_target, http_version = request_line in
-     let+ headers = header_fields in
-     {meth; request_target; http_version; headers; client_addr} )
-    <* crlf
+  let request_or_eof =
+    let request' =
+      (let* meth, request_target, http_version = request_line in
+       let+ headers = header_fields in
+       `Request {meth; request_target; http_version; headers; client_addr} )
+      <* crlf
+    in
+    let eof = end_of_input >>| fun () -> `End in
+    request' <|> eof
   in
   let open Lwt.Syntax in
   let rec read reader = function
@@ -209,7 +213,8 @@ let request context client_addr =
         else reader.unconsumed <- None ;
         Lwt.return (Error (String.concat " > " marks ^ ": " ^ err))
   in
-  read context (Buffered.parse p)
+  let+ result = read context (Buffered.parse request_or_eof) in
+  match result with Ok x -> x | Error x -> `Error x
 
 open Lwt.Infix
 open Lwt.Syntax
@@ -294,7 +299,7 @@ let rec handle_requests request_handler client_addr fd =
   let context = {fd; unconsumed= None; body_read= false} in
   request context client_addr
   >>= function
-  | Ok req -> (
+  | `Request req -> (
       _debug (fun k -> k "%s\n%!" (show_request req)) ;
       Lwt.catch
         (fun () -> request_handler context req)
@@ -305,8 +310,11 @@ let rec handle_requests request_handler client_addr fd =
       match List.assoc_opt "Connection" req.headers with
       | Some "close" -> Lwt_unix.close fd
       | Some _ | None -> handle_requests request_handler client_addr fd )
-  | Error e ->
-      _debug (fun k -> k "Error: %s\n\nClosing connection." e) ;
+  | `End ->
+      _debug (fun k -> k "Closing connection") ;
+      Lwt_unix.close fd
+  | `Error e ->
+      _debug (fun k -> k "Error: %s\nClosing connection." e) ;
       Lwt_unix.close fd
 
 let start ~port request_handler =
