@@ -314,7 +314,7 @@ let rec handle_requests request_handler client_addr fd =
       _debug (fun k -> k "Closing connection") ;
       Lwt_unix.close fd
   | `Error e ->
-      _debug (fun k -> k "Error: %s\nClosing connection." e) ;
+      _debug (fun k -> k "Error: %s\nClosing connection" e) ;
       Lwt_unix.close fd
 
 let start ~port request_handler =
