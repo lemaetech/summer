@@ -24,7 +24,7 @@ let _debug k =
 
 let _peek_dbg n =
   let+ s = peek_string n in
-  _debug (fun k -> k "peek: %s\n%!" s)
+  _debug (fun k -> k "peek: %s\n%!" (String.escaped s))
 
 type request =
   { meth: meth
@@ -58,47 +58,6 @@ and request_body =
   | Done
 
 (* Parsers *)
-
-let pair a b = (a, b)
-
-(*-- https://datatracker.ietf.org/doc/html/rfc7230#appendix-B --*)
-
-let token =
-  take_while1 (function
-    | '0' .. '9'
-     |'a' .. 'z'
-     |'A' .. 'Z'
-     |'!' | '#' | '$' | '%' | '&' | '\'' | '*' | '+' | '-' | '.' | '^' | '_'
-     |'`' | '|' | '~' ->
-        true
-    | _ -> false )
-
-let space = char '\x20'
-let htab = char '\t'
-let ows = skip_many (space <|> htab)
-let optional x = option None (x >>| Option.some)
-let vchar = satisfy (function '\x21' .. '\x7E' -> true | _ -> false)
-let crlf = string_ci "\r\n" <?> "[crlf]"
-
-(*-- https://datatracker.ietf.org/doc/html/rfc7230#section-3.2 --*)
-let header_fields =
-  let header_field =
-    let* field_name = token <* char ':' <* ows >>| String.lowercase_ascii in
-    let+ field_value =
-      let field_content =
-        let c2 =
-          optional
-            (let+ c1 = skip_many1 (space <|> htab) *> vchar in
-             Format.sprintf " %c" c1 )
-          >>| function Some s -> s | None -> ""
-        in
-        lift2 (fun c1 c2 -> Format.sprintf "%c%s" c1 c2) vchar c2
-      in
-      many field_content >>| String.concat "" <* crlf <* commit
-    in
-    (field_name, field_value)
-  in
-  many header_field
 
 let meth t = t.meth
 let target t = t.request_target
@@ -164,11 +123,52 @@ let method_ meth =
   | "TRACE" -> `TRACE
   | header -> `Method header
 
+let pair a b = (a, b)
+
+(*-- https://datatracker.ietf.org/doc/html/rfc7230#appendix-B --*)
+
+let token =
+  take_while1 (function
+    | '0' .. '9'
+     |'a' .. 'z'
+     |'A' .. 'Z'
+     |'!' | '#' | '$' | '%' | '&' | '\'' | '*' | '+' | '-' | '.' | '^' | '_'
+     |'`' | '|' | '~' ->
+        true
+    | _ -> false )
+
+let space = char '\x20'
+let htab = char '\t'
+let ows = skip_many (space <|> htab)
+let optional x = option None (x >>| Option.some)
+let vchar = satisfy (function '\x21' .. '\x7E' -> true | _ -> false)
+let crlf = string_ci "\r\n" <?> "[crlf]"
+
+(*-- https://datatracker.ietf.org/doc/html/rfc7230#section-3.2 --*)
+let header_fields =
+  let header_field =
+    let* field_name = token <* char ':' <* ows >>| String.lowercase_ascii in
+    let+ field_value =
+      let field_content =
+        let c2 =
+          optional
+            (let+ c1 = skip_many1 (space <|> htab) *> vchar in
+             Format.sprintf " %c" c1 )
+          >>| function Some s -> s | None -> ""
+        in
+        lift2 (fun c1 c2 -> Format.sprintf "%c%s" c1 c2) vchar c2
+      in
+      many field_content >>| String.concat "" <* crlf <* commit
+    in
+    (field_name, field_value)
+  in
+  many header_field
+
 (*-- request-line = method SP request-target SP HTTP-version CRLF -- *)
 let request_line =
   let* meth = token >>| method_ <* space in
   let* request_target =
-    take_bigstring_till (fun c -> c != ' ') >>| Bigstringaf.to_string <* space
+    take_bigstring_while1 (fun c -> c != ' ') >>| Bigstringaf.to_string <* space
   in
   let digit = satisfy (function '0' .. '9' -> true | _ -> false) in
   let* http_version =
@@ -183,14 +183,8 @@ let request_line =
 
 let request context client_addr =
   let p =
-    lift2
-      (fun a b ->
-        _debug (fun k -> k "request_line, headers parsed.") ;
-        pair a b )
-      request_line
-      (header_fields <* return (_peek_dbg 10))
+    lift2 pair request_line header_fields
     >>| (fun ((meth, request_target, http_version), headers) ->
-          _debug (fun k -> k "request_line, headers parsed.") ;
           { meth
           ; request_target
           ; http_version
