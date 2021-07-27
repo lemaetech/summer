@@ -221,6 +221,9 @@ let rec request_body ?(read_buffer_size = 1024) ~content_length context =
     ~read_buffer_size
 
 and read fd unconsumed ~content_length ~total_read ~read_buffer_size =
+  _debug (fun k ->
+      k "content_length:%d, total_read:%d, read_buffer_size:%d" content_length
+        total_read read_buffer_size ) ;
   let open Lwt.Syntax in
   if total_read < content_length then
     let total_unread = content_length - total_read in
