@@ -44,6 +44,8 @@ and request_body =
   | Partial of {body: Cstruct.t; continue: unit -> request_body Lwt.t}
   | Done
 
+val io_buffer_size : int
+
 (** {2 Request} *)
 
 val meth : request -> meth

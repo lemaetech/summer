@@ -57,6 +57,8 @@ and request_body =
   | Partial of {body: Cstruct.t; continue: unit -> request_body Lwt.t}
   | Done
 
+let io_buffer_size = 65536 (* UNIX_BUFFER_SIZE 4.0.0 *)
+
 let meth t = t.meth
 let target t = t.request_target
 let http_version t = t.http_version
@@ -176,12 +178,11 @@ let request context client_addr =
      {meth; request_target; http_version; headers; client_addr} )
     <* crlf
   in
-  let unix_buffer_size = 65536 (* UNIX_BUFFER_SIZE 4.0.0 *) in
   let open Lwt.Syntax in
   let rec read reader = function
     | Buffered.Partial k ->
         let len =
-          unix_buffer_size
+          io_buffer_size
           -
           match context.unconsumed with Some b -> Cstruct.length b | None -> 0
         in
@@ -214,29 +215,27 @@ let request context client_addr =
 open Lwt.Infix
 open Lwt.Syntax
 
-let rec request_body ?(read_buffer_size = 1024) ~content_length context =
-  let+ request_body =
-    read context.fd context.unconsumed ~content_length ~total_read:0
-      ~read_buffer_size
-  in
-  context.unconsumed <- None ;
-  request_body
+let rec request_body ?(read_buffer_size = io_buffer_size) ~content_length
+    context =
+  if content_length = 0 then Lwt.return Done
+  else
+    let+ request_body =
+      read context.fd context.unconsumed ~content_length ~total_read:0
+        ~read_buffer_size
+    in
+    context.unconsumed <- None ;
+    request_body
 
 and read fd unconsumed ~content_length ~total_read ~read_buffer_size =
-  if total_read < content_length then (
+  if total_read < content_length then
     let total_unread = content_length - total_read in
     let buffer_size =
       if read_buffer_size > total_unread then total_unread else read_buffer_size
     in
-    _debug (fun k ->
-        k "content_length:%d, total_read:%d, read_buffer_size:%d" content_length
-          total_read read_buffer_size ) ;
-
-    let* len', buf, unconsumed =
+    let* len', body, unconsumed =
       match unconsumed with
       | Some buf' ->
           let len' = Cstruct.length buf' in
-          _debug (fun k -> k "start unconsumed length: %d" len') ;
           if len' <= buffer_size then Lwt.return (len', buf', None)
           else
             let buf'' = Cstruct.create buffer_size in
@@ -254,7 +253,7 @@ and read fd unconsumed ~content_length ~total_read ~read_buffer_size =
       read fd unconsumed ~content_length ~total_read:(total_read + len')
         ~read_buffer_size
     in
-    Lwt.return (Partial {body= buf; continue}) )
+    Lwt.return (Partial {body; continue})
   else Lwt.return Done
 
 module IO_vector = Lwt_unix.IO_vectors
