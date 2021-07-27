@@ -21,6 +21,7 @@ type t
 (** [request] represents a HTTP/1.1 request *)
 and request
 
+(** [meth] represents request methods. *)
 and meth =
   [ `GET
   | `HEAD
@@ -38,8 +39,7 @@ and header = string * string
 (** ['a handler] represents a connection handler. *)
 and 'a handler = t -> request -> 'a Lwt.t
 
-(** [context] holds data for [handler] function. *)
-
+(** [request_body] represents a request body stream data. *)
 and request_body =
   | Partial of {body: Cstruct.t; continue: unit -> request_body Lwt.t}
   | Done
@@ -55,10 +55,10 @@ val content_length : request -> int
 val pp_request : Format.formatter -> request -> unit
 val show_request : request -> string
 
-(** {2 Body} *)
-
 val request_body :
   ?read_buffer_size:int -> content_length:int -> t -> request_body Lwt.t
+(** [request_body ?read_buffer_size ~content_length t] reads {!request_body}
+    stream instance from [t]. *)
 
 (** {2 Response} *)
 
