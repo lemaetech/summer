@@ -22,11 +22,10 @@ let _debug k =
     k (fun fmt ->
         Printf.kfprintf (fun oc -> Printf.fprintf oc "\n%!") stdout fmt )
 
-let _peek_dbg n =
-  let+ s = peek_string n in
-  _debug (fun k -> k "peek: %s\n%!" (String.escaped s))
-
-type t = {fd: Lwt_unix.file_descr; mutable unconsumed: Cstruct.t option}
+type t =
+  { fd: Lwt_unix.file_descr
+  ; mutable unconsumed: Cstruct.t option
+  ; mutable body_read: bool }
 
 and request =
   { meth: meth
@@ -215,15 +214,14 @@ let request context client_addr =
 open Lwt.Infix
 open Lwt.Syntax
 
-let rec request_body ?(read_buffer_size = io_buffer_size) ~content_length
-    context =
+let rec request_body ?(read_buffer_size = io_buffer_size) ~content_length t =
   if content_length = 0 then Lwt.return Done
   else
     let+ request_body =
-      read context.fd context.unconsumed ~content_length ~total_read:0
-        ~read_buffer_size
+      read t.fd t.unconsumed ~content_length ~total_read:0 ~read_buffer_size
     in
-    context.unconsumed <- None ;
+    t.unconsumed <- None ;
+    t.body_read <- true ;
     request_body
 
 and read fd unconsumed ~content_length ~total_read ~read_buffer_size =
@@ -293,7 +291,7 @@ let write_status conn status_code reason_phrase =
 
 let rec handle_requests request_handler client_addr fd =
   _debug (fun k -> k "Waiting for new request ...\n%!") ;
-  let context = {fd; unconsumed= None} in
+  let context = {fd; unconsumed= None; body_read= false} in
   request context client_addr
   >>= function
   | Ok req -> (
