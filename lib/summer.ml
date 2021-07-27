@@ -229,7 +229,7 @@ let rec request_body ?(read_buffer_size = io_buffer_size) ~content_length t =
     request_body
 
 and read t ~content_length ~total_read ~read_buffer_size =
-  if total_read < content_length then
+  if total_read < content_length then (
     let total_unread = content_length - total_read in
     let buffer_size =
       if read_buffer_size > total_unread then total_unread else read_buffer_size
@@ -251,11 +251,11 @@ and read t ~content_length ~total_read ~read_buffer_size =
           let+ len' = Lwt_bytes.read t.fd buf.buffer 0 buffer_size in
           (len', buf, None)
     in
+    t.unconsumed <- unconsumed ;
     let continue () =
-      t.unconsumed <- unconsumed ;
       read t ~content_length ~total_read:(total_read + len') ~read_buffer_size
     in
-    Lwt.return (Partial {body; continue})
+    Lwt.return (Partial {body; continue}) )
   else Lwt.return Done
 
 module IO_vector = Lwt_unix.IO_vectors
