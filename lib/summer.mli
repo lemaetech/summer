@@ -15,8 +15,11 @@
     - https://datatracker.ietf.org/doc/html/rfc7230
     - https://datatracker.ietf.org/doc/html/rfc7231 *)
 
+(** [t] represents a HTTP/1.1 sever *)
+type t
+
 (** [request] represents a HTTP/1.1 request *)
-type request
+and request
 
 and meth =
   [ `GET
@@ -33,10 +36,9 @@ and meth =
 and header = string * string
 
 (** ['a handler] represents a connection handler. *)
-and 'a handler = context -> request -> 'a Lwt.t
+and 'a handler = t -> request -> 'a Lwt.t
 
 (** [context] holds data for [handler] function. *)
-and context
 
 and request_body =
   | Partial of {body: Cstruct.t; continue: unit -> request_body Lwt.t}
@@ -53,19 +55,19 @@ val content_length : request -> int
 val pp_request : Format.formatter -> request -> unit
 val show_request : request -> string
 
-(** {2 Context} *)
+(** {2 Body} *)
 
 val request_body :
-  ?read_buffer_size:int -> content_length:int -> context -> request_body Lwt.t
+  ?read_buffer_size:int -> content_length:int -> t -> request_body Lwt.t
 
 (** {2 Response} *)
 
 val respond_with_bigstring :
-     status_code:int
+     t
+  -> status_code:int
   -> reason_phrase:string
   -> content_type:string
   -> Cstruct.buffer
-  -> context
   -> unit Lwt.t
 
 (** {2 HTTP server} *)

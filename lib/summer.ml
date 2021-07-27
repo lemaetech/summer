@@ -26,11 +26,13 @@ let _peek_dbg n =
   let+ s = peek_string n in
   _debug (fun k -> k "peek: %s\n%!" (String.escaped s))
 
-type request =
+type t = {fd: Lwt_unix.file_descr; mutable unconsumed: Cstruct.t option}
+
+and request =
   { meth: meth
   ; request_target: string
   ; http_version: int * int
-  ; headers: (string, string) Hashtbl.t
+  ; headers: (string * string) list
   ; client_addr: Lwt_unix.sockaddr }
 
 (* https://datatracker.ietf.org/doc/html/rfc7231#section-4 *)
@@ -49,9 +51,7 @@ and header = string * string
 (* (name,value) *)
 
 (*-- Handler and context --*)
-and 'a handler = context -> request -> 'a Lwt.t
-
-and context = {fd: Lwt_unix.file_descr; mutable unconsumed: Cstruct.t option}
+and 'a handler = t -> request -> 'a Lwt.t
 
 and request_body =
   | Partial of {body: Cstruct.t; continue: unit -> request_body Lwt.t}
@@ -60,7 +60,7 @@ and request_body =
 let meth t = t.meth
 let target t = t.request_target
 let http_version t = t.http_version
-let headers t = Hashtbl.to_seq t.headers |> List.of_seq
+let headers t = t.headers
 let client_addr t = t.client_addr
 
 let rec pp_request fmt t =
@@ -92,7 +92,7 @@ and pp_meth fmt t =
 and pp_headers fmt t =
   let colon fmt _ = Fmt.string fmt ": " in
   let header_field = Fmt.(pair ~sep:colon string string) in
-  Fmt.vbox Fmt.(list header_field) fmt (Hashtbl.to_seq t |> List.of_seq)
+  Fmt.vbox Fmt.(list header_field) fmt t
 
 let show_request t =
   let buf = Buffer.create 0 in
@@ -100,8 +100,7 @@ let show_request t =
   pp_request fmt t ; Format.fprintf fmt "%!" ; Buffer.contents buf
 
 let content_length request =
-  let content_length = "content-length" in
-  match Hashtbl.find_opt request.headers content_length with
+  match List.assoc_opt "content-length" request.headers with
   | Some len -> ( try int_of_string len with _ -> 0 )
   | None -> 0
 
@@ -174,11 +173,7 @@ let request context client_addr =
   let p =
     (let* meth, request_target, http_version = request_line in
      let+ headers = header_fields in
-     { meth
-     ; request_target
-     ; http_version
-     ; headers= List.to_seq headers |> Hashtbl.of_seq
-     ; client_addr } )
+     {meth; request_target; http_version; headers; client_addr} )
     <* crlf
   in
   let unix_buffer_size = 65536 (* UNIX_BUFFER_SIZE 4.0.0 *) in
@@ -264,8 +259,8 @@ and read fd unconsumed ~content_length ~total_read ~read_buffer_size =
 
 module IO_vector = Lwt_unix.IO_vectors
 
-let respond_with_bigstring ~(status_code : int) ~(reason_phrase : string)
-    ~(content_type : string) (body : Cstruct.buffer) context =
+let respond_with_bigstring context ~(status_code : int)
+    ~(reason_phrase : string) ~(content_type : string) (body : Cstruct.buffer) =
   let iov = IO_vector.create () in
   let status_line =
     Format.sprintf "HTTP/1.1 %d %s\r\n" status_code reason_phrase
@@ -310,7 +305,7 @@ let rec handle_requests request_handler client_addr fd =
           _debug (fun k -> k "Unhandled exception: %s" (Printexc.to_string exn)) ;
           write_status fd 500 "Internal Server Error" )
       >>= fun () ->
-      match Hashtbl.find_opt req.headers "Connection" with
+      match List.assoc_opt "Connection" req.headers with
       | Some "close" -> Lwt_unix.close fd
       | Some _ | None -> handle_requests request_handler client_addr fd )
   | Error e ->

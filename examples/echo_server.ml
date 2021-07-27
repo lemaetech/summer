@@ -22,10 +22,10 @@ let () =
         read_content context (Cstruct.append body buf) (continue ())
     | Done -> Lwt.return (Ok body)
   in
-  Summer.start ~port:!port (fun context req ->
+  Summer.start ~port:!port (fun t req ->
       let content_length = Summer.content_length req in
-      Summer.request_body ~read_buffer_size:10 ~content_length context
-      |> read_content context Cstruct.empty
+      Summer.request_body ~read_buffer_size:10 ~content_length t
+      |> read_content t Cstruct.empty
       >>= function
       | Ok body ->
           let text =
@@ -33,6 +33,6 @@ let () =
               (Cstruct.to_string body)
             |> Lwt_bytes.of_string
           in
-          Summer.respond_with_bigstring ~status_code:200 ~reason_phrase:"OK"
-            ~content_type:"text/plain" text context
+          Summer.respond_with_bigstring t ~status_code:200 ~reason_phrase:"OK"
+            ~content_type:"text/plain" text
       | Error _ -> Lwt.return () )
