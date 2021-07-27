@@ -216,38 +216,52 @@ let request context client_addr =
   in
   read context (Buffered.parse p)
 
+open Lwt.Infix
+open Lwt.Syntax
+
 let rec request_body ?(read_buffer_size = 1024) ~content_length context =
-  read context.fd context.unconsumed ~content_length ~total_read:0
-    ~read_buffer_size
+  let+ request_body =
+    read context.fd context.unconsumed ~content_length ~total_read:0
+      ~read_buffer_size
+  in
+  context.unconsumed <- None ;
+  request_body
 
 and read fd unconsumed ~content_length ~total_read ~read_buffer_size =
-  _debug (fun k ->
-      k "content_length:%d, total_read:%d, read_buffer_size:%d" content_length
-        total_read read_buffer_size ) ;
-  let open Lwt.Syntax in
-  if total_read < content_length then
+  if total_read < content_length then (
     let total_unread = content_length - total_read in
     let buffer_size =
       if read_buffer_size > total_unread then total_unread else read_buffer_size
     in
-    let buf = Cstruct.create buffer_size in
-    let* len' = Lwt_bytes.read fd buf.buffer 0 buffer_size in
+    _debug (fun k ->
+        k "content_length:%d, total_read:%d, read_buffer_size:%d" content_length
+          total_read read_buffer_size ) ;
+
+    let* len', buf, unconsumed =
+      match unconsumed with
+      | Some buf' ->
+          let len' = Cstruct.length buf' in
+          _debug (fun k -> k "start unconsumed length: %d" len') ;
+          if len' <= buffer_size then Lwt.return (len', buf', None)
+          else
+            let buf'' = Cstruct.create buffer_size in
+            Cstruct.blit buf' 0 buf'' 0 buffer_size ;
+            let len = Cstruct.length buf' - buffer_size in
+            let unconsumed = Cstruct.create len in
+            Cstruct.blit buf' buffer_size unconsumed 0 len ;
+            Lwt.return (buffer_size, buf'', Some unconsumed)
+      | None ->
+          let buf = Cstruct.create buffer_size in
+          let+ len' = Lwt_bytes.read fd buf.buffer 0 buffer_size in
+          (len', buf, None)
+    in
     let continue () =
-      read fd None ~content_length ~total_read:(total_read + len')
+      read fd unconsumed ~content_length ~total_read:(total_read + len')
         ~read_buffer_size
     in
-    if len' = 0 then Lwt.return Done
-    else if len' != buffer_size then (
-      let buf' = Cstruct.create len' in
-      Cstruct.blit buf 0 buf' 0 len' ;
-      let buf =
-        match unconsumed with Some b -> Cstruct.(append b buf) | None -> buf'
-      in
-      Lwt.return (Partial {body= buf; continue}) )
-    else Lwt.return (Partial {body= buf; continue})
+    Lwt.return (Partial {body= buf; continue}) )
   else Lwt.return Done
 
-open Lwt.Infix
 module IO_vector = Lwt_unix.IO_vectors
 
 let respond_with_bigstring ~(status_code : int) ~(reason_phrase : string)
