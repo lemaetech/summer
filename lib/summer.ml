@@ -27,7 +27,7 @@ type t =
   ; mutable unconsumed: Cstruct.t
   ; mutable body_read: bool }
 
-and request =
+type request =
   { meth: meth
   ; request_target: string
   ; http_version: int * int
@@ -229,6 +229,9 @@ let read_body request t =
     t.body_read <- true ;
     if unconsumed_length > 0 then Cstruct.append t.unconsumed buf else buf
 
+(* Response *)
+
+include Status
 module IO_vector = Lwt_unix.IO_vectors
 
 let respond_with_bigstring context ~(status_code : int)
