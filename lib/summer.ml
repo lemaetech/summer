@@ -226,6 +226,7 @@ let read_body request t =
     let buf = Cstruct.create sz in
     let+ sz' = Lwt_bytes.read t.fd buf.buffer 0 sz in
     let buf = if sz' <> sz then Cstruct.sub buf 0 sz' else buf in
+    t.body_read <- true ;
     if unconsumed_length > 0 then Cstruct.append t.unconsumed buf else buf
 
 module IO_vector = Lwt_unix.IO_vectors
