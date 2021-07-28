@@ -157,7 +157,7 @@ let status_to_code : status -> int = function
   | `Http_version_not_supported -> 505
   | `Status (c, _) -> c
 
-let status_of_code = function
+let status_of_code ?(reason_phrase = "unknown") = function
   (* Informational *)
   | 100 -> `Continue
   | 101 -> `Switching_protocols
@@ -212,4 +212,4 @@ let status_of_code = function
       else if c < 100 || c > 999 then
         failwith
           (Printf.sprintf "Status.of_code: %d is not a three-digit number" c)
-      else `Status (c, "unknown")
+      else `Status (c, reason_phrase)

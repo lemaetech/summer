@@ -129,7 +129,7 @@ val status_reason_phrase : status -> string
 val status_to_code : status -> int
 (** [to_code t] is the integer representation of [t]. *)
 
-val status_of_code : int -> status
+val status_of_code : ?reason_phrase:string -> int -> status
 (** [of_code code] returns {!status} represented by [code]. It raises exception
     if [code] is not a valid HTTP code. *)
 
