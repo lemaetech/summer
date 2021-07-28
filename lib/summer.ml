@@ -49,9 +49,6 @@ and meth =
 and header = string * string
 (* (name,value) *)
 
-(*-- Handler and context --*)
-and 'a handler = t -> request -> 'a Lwt.t
-
 let io_buffer_size = 65536 (* UNIX_BUFFER_SIZE 4.0.0 *)
 
 let meth t = t.meth
@@ -234,29 +231,54 @@ let read_body request t =
 include Status
 module IO_vector = Lwt_unix.IO_vectors
 
-let respond_with_bigstring context ~(status_code : int)
-    ~(reason_phrase : string) ~(content_type : string) (body : Cstruct.buffer) =
+type response = {status: status; headers: header list; body: Cstruct.t}
+
+(*-- Handler --*)
+type handler = t -> request -> response Lwt.t
+
+let response_bigstring ?(status = `OK) ?(headers = []) body =
+  { status
+  ; headers=
+      List.map
+        (fun (name, value) -> (String.lowercase_ascii name, value))
+        headers
+  ; body= Cstruct.of_bigarray body }
+
+let response ?(status = `OK) ?(headers = []) body =
+  response_bigstring ~status ~headers
+    (Bigstringaf.of_string body ~off:0 ~len:(String.length body))
+
+let headers_to_bytes headers =
+  let buf = Buffer.create 0 in
+  List.iter
+    (fun (name, value) ->
+      Format.sprintf "%s: %s\r\n" name value |> Buffer.add_string buf )
+    headers ;
+  (Buffer.length buf, Buffer.to_bytes buf)
+
+let write_response t {status; headers; body} =
   let iov = IO_vector.create () in
+
+  (* Append status line. *)
   let status_line =
-    Format.sprintf "HTTP/1.1 %d %s\r\n" status_code reason_phrase
-    |> Lwt_bytes.of_string
+    Format.sprintf "HTTP/1.1 %d %s\r\n" (status_to_code status)
+      (status_reason_phrase status)
+    |> Bytes.unsafe_of_string
   in
-  IO_vector.append_bigarray iov status_line 0 (Lwt_bytes.length status_line) ;
-  let content_type_header =
-    Format.sprintf "Content-Type: %s\r\n" content_type |> Lwt_bytes.of_string
+  IO_vector.append_bytes iov status_line 0 (Bytes.length status_line) ;
+
+  (* Append headers. *)
+  let headers =
+    if List.mem_assoc "content-length" headers then headers
+    else ("content-length", Cstruct.length body |> string_of_int) :: headers
   in
-  IO_vector.append_bigarray iov content_type_header 0
-    (Lwt_bytes.length content_type_header) ;
-  let content_length = Lwt_bytes.length body in
-  let content_length_header =
-    Format.sprintf "Content-Length: %d\r\n" content_length
-    |> Lwt_bytes.of_string
-  in
-  IO_vector.append_bigarray iov content_length_header 0
-    (Lwt_bytes.length content_length_header) ;
+  let len, header_bytes = headers_to_bytes headers in
+  IO_vector.append_bytes iov header_bytes 0 len ;
+
   IO_vector.append_bytes iov (Bytes.unsafe_of_string "\r\n") 0 2 ;
-  IO_vector.append_bigarray iov body 0 content_length ;
-  Lwt_unix.writev context.fd iov >|= fun _ -> ()
+  IO_vector.append_bigarray iov (Cstruct.to_bigarray body) 0
+    (Cstruct.length body) ;
+  Lwt_unix.writev t.fd iov >|= fun _ -> ()
 
 let write_status conn status_code reason_phrase =
   let iov = IO_vector.create () in
@@ -267,15 +289,17 @@ let write_status conn status_code reason_phrase =
   IO_vector.append_bigarray iov status_line 0 (Lwt_bytes.length status_line) ;
   Lwt_unix.writev conn iov >|= fun _ -> ()
 
-let rec handle_requests request_handler client_addr fd =
+let rec handle_requests (request_handler : handler) client_addr fd =
   _debug (fun k -> k "Waiting for new request ...\n%!") ;
-  let context = {fd; unconsumed= Cstruct.empty; body_read= false} in
-  request context client_addr
+  let t = {fd; unconsumed= Cstruct.empty; body_read= false} in
+  request t client_addr
   >>= function
   | `Request req -> (
       _debug (fun k -> k "%s\n%!" (show_request req)) ;
       Lwt.catch
-        (fun () -> request_handler context req)
+        (fun () ->
+          let* response = request_handler t req in
+          write_response t response )
         (fun exn ->
           _debug (fun k -> k "Unhandled exception: %s" (Printexc.to_string exn)) ;
           write_status fd 500 "Internal Server Error" )

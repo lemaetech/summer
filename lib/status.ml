@@ -53,9 +53,9 @@ type server_error =
 type standard_status =
   [informational | successful | redirection | client_error | server_error]
 
-type status = [standard_status | `Status of int]
+type status = [standard_status | `Status of int * string]
 
-let reason_phrase = function
+let status_reason_phrase = function
   (* Informational *)
   | `Continue -> "Continue"
   | `Switching_protocols -> "Switching Protocols"
@@ -104,8 +104,9 @@ let reason_phrase = function
   | `Service_unavailable -> "Service Unavailable"
   | `Gateway_timeout -> "Gateway Timeout"
   | `Http_version_not_supported -> "HTTP Version Not Supported"
+  | `Status (_, reason_phrase) -> reason_phrase
 
-let to_code : status -> int = function
+let status_to_code : status -> int = function
   (* Informational *)
   | `Continue -> 100
   | `Switching_protocols -> 101
@@ -154,9 +155,9 @@ let to_code : status -> int = function
   | `Service_unavailable -> 503
   | `Gateway_timeout -> 504
   | `Http_version_not_supported -> 505
-  | `Status c -> c
+  | `Status (c, _) -> c
 
-let of_code = function
+let status_of_code = function
   (* Informational *)
   | 100 -> `Continue
   | 101 -> `Switching_protocols
@@ -211,4 +212,4 @@ let of_code = function
       else if c < 100 || c > 999 then
         failwith
           (Printf.sprintf "Status.of_code: %d is not a three-digit number" c)
-      else `Status c
+      else `Status (c, "unknown")

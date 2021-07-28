@@ -119,34 +119,33 @@ type standard_status =
 
 (** See {{:https://tools.ietf.org/html/rfc7231#section-6} RFC7231§6} for more
     details on http response codes *)
-type status = [standard_status | `Status of int]
+type status = [standard_status | `Status of int * string]
 
-val reason_phrase : standard_status -> string
+val status_reason_phrase : status -> string
 (** [reason_phrase standard] is the example reason phrase provided by RFC7231
     for the {!type:standard_status} status code. The RFC allows servers to use
     reason phrases besides these in responses. *)
 
-val to_code : status -> int
+val status_to_code : status -> int
 (** [to_code t] is the integer representation of [t]. *)
 
-val of_code : int -> status
+val status_of_code : int -> status
 (** [of_code code] returns {!status} represented by [code]. It raises exception
     if [code] is not a valid HTTP code. *)
 
-val respond_with_bigstring :
-     t
-  -> status_code:int
-  -> reason_phrase:string
-  -> content_type:string
-  -> Cstruct.buffer
-  -> unit Lwt.t
+type response
 
-(** {2 Handler} *)
+val response : ?status:status -> ?headers:header list -> string -> response
+
+val response_bigstring :
+  ?status:status -> ?headers:header list -> Cstruct.buffer -> response
+
+(** {1 Handler} *)
 
 (** ['a handler] represents a connection handler. *)
-type 'a handler = t -> request -> 'a Lwt.t
+type handler = t -> request -> response Lwt.t
 
 val io_buffer_size : int
 
-val start : port:int -> unit handler -> unit
+val start : port:int -> handler -> unit
 (** [start port request_handler] Starts HTTP/1.1 server at [port]. *)

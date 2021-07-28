@@ -8,7 +8,7 @@
  * %%NAME%% %%VERSION%%
  *-------------------------------------------------------------------------*)
 
-open Lwt.Infix
+open Lwt.Syntax
 
 let () =
   let port = ref 3000 in
@@ -16,13 +16,11 @@ let () =
     [("-p", Arg.Set_int port, " Listening port number (3000 by default)")]
     ignore "An echo HTTP server using summer!" ;
   Summer.start ~port:!port (fun t req ->
-      Summer.read_body req t
-      >>= function
-      | body ->
-          let text =
-            Format.sprintf "%s\n\n%s" (Summer.show_request req)
-              (Cstruct.to_string body)
-            |> Lwt_bytes.of_string
-          in
-          Summer.respond_with_bigstring t ~status_code:200 ~reason_phrase:"OK"
-            ~content_type:"text/plain" text )
+      let+ body = Summer.read_body req t in
+      let text =
+        Format.sprintf "%s\n\n%s" (Summer.show_request req)
+          (Cstruct.to_string body)
+      in
+      Summer.response
+        ~headers:[("content-type", "text/plain; charset=utf-8")]
+        text )
