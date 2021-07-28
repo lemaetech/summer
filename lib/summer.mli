@@ -53,7 +53,7 @@ val pp_request : Format.formatter -> request -> unit
 val show_request : request -> string
 
 val read_body : request -> t -> Cstruct.t Lwt.t
-(** [read_body request t] reads {!request_body} stream instance from [t]. *)
+(** [read_body request t] returns request body. *)
 
 (** {2 Response} *)
 
