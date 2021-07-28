@@ -312,7 +312,7 @@ let rec handle_requests (request_handler : handler) client_addr fd =
       Lwt_unix.close fd
   | `Error e ->
       _debug (fun k -> k "Error: %s\nClosing connection" e) ;
-      Lwt_unix.close fd
+      write_status fd 400 "Bad Request" >>= fun () -> Lwt_unix.close fd
 
 let start ~port request_handler =
   let listen_address = Unix.(ADDR_INET (inet_addr_loopback, port)) in
