@@ -24,7 +24,7 @@ let _debug k =
 
 type t =
   { fd: Lwt_unix.file_descr
-  ; mutable unconsumed: Cstruct.t option
+  ; mutable unconsumed: Cstruct.t
   ; mutable body_read: bool }
 
 and request =
@@ -51,10 +51,6 @@ and header = string * string
 
 (*-- Handler and context --*)
 and 'a handler = t -> request -> 'a Lwt.t
-
-and request_body =
-  | Partial of {body: Cstruct.t; continue: unit -> request_body Lwt.t}
-  | Done
 
 let io_buffer_size = 65536 (* UNIX_BUFFER_SIZE 4.0.0 *)
 
@@ -170,7 +166,7 @@ let request_line =
   in
   commit *> return (meth, request_target, http_version)
 
-let request context client_addr =
+let request t client_addr =
   let request_or_eof =
     let request' =
       (let* meth, request_target, http_version = request_line in
@@ -184,79 +180,53 @@ let request context client_addr =
   let open Lwt.Syntax in
   let rec read reader = function
     | Buffered.Partial k ->
-        let len =
-          io_buffer_size
-          -
-          match context.unconsumed with Some b -> Cstruct.length b | None -> 0
-        in
+        let len = io_buffer_size - Cstruct.length t.unconsumed in
         let buf = Cstruct.create len in
-        let* len' = Lwt_bytes.read context.fd buf.buffer 0 len in
+        let* len' = Lwt_bytes.read t.fd buf.buffer 0 len in
         if len' = 0 then read reader (k `Eof)
         else if len' != len then (
           let buf' = Cstruct.create len' in
           Cstruct.blit buf 0 buf' 0 len' ;
-          let buf =
-            match context.unconsumed with
-            | Some b -> Cstruct.(append b buf')
-            | None -> buf'
-          in
-          read reader (k (`Bigstring (Cstruct.to_bigarray buf))) )
+          let buf'' = Cstruct.(append t.unconsumed buf') in
+          read reader (k (`Bigstring (Cstruct.to_bigarray buf''))) )
         else read reader (k (`Bigstring (Cstruct.to_bigarray buf)))
     | Buffered.Done ({off; len; buf}, x) ->
-        if len > 0 then
-          reader.unconsumed <- Some (Cstruct.of_bigarray ~off ~len buf)
-        else reader.unconsumed <- None ;
+        if len > 0 then reader.unconsumed <- Cstruct.of_bigarray ~off ~len buf
+        else reader.unconsumed <- Cstruct.empty ;
         Lwt.return (Ok x)
     | Buffered.Fail ({off; len; buf}, marks, err) ->
-        if len > 0 then
-          reader.unconsumed <- Some (Cstruct.of_bigarray ~off ~len buf)
-        else reader.unconsumed <- None ;
+        if len > 0 then reader.unconsumed <- Cstruct.of_bigarray ~off ~len buf
+        else reader.unconsumed <- Cstruct.empty ;
         Lwt.return (Error (String.concat " > " marks ^ ": " ^ err))
   in
-  let+ read_result = read context (Buffered.parse request_or_eof) in
+  let+ read_result = read t (Buffered.parse request_or_eof) in
   match read_result with Ok x -> x | Error x -> `Error x
 
 open Lwt.Infix
 open Lwt.Syntax
 
-let rec request_body ?(read_buffer_size = io_buffer_size) ~content_length t =
-  if content_length = 0 then Lwt.return Done
-  else
-    let+ request_body =
-      read t ~content_length ~total_read:0 ~read_buffer_size
-    in
+let read_body request t =
+  let content_length = content_length request in
+  let unconsumed_length = Cstruct.length t.unconsumed in
+  if content_length = 0 || t.body_read then (
     t.body_read <- true ;
-    request_body
-
-and read t ~content_length ~total_read ~read_buffer_size =
-  if total_read < content_length then (
-    let total_unread = content_length - total_read in
-    let buffer_size =
-      if read_buffer_size > total_unread then total_unread else read_buffer_size
-    in
-    let* len', body, unconsumed =
-      match t.unconsumed with
-      | Some buf' ->
-          let len' = Cstruct.length buf' in
-          if len' <= buffer_size then Lwt.return (len', buf', None)
-          else
-            let buf'' = Cstruct.create buffer_size in
-            Cstruct.blit buf' 0 buf'' 0 buffer_size ;
-            let len = Cstruct.length buf' - buffer_size in
-            let unconsumed = Cstruct.create len in
-            Cstruct.blit buf' buffer_size unconsumed 0 len ;
-            Lwt.return (buffer_size, buf'', Some unconsumed)
-      | None ->
-          let buf = Cstruct.create buffer_size in
-          let+ len' = Lwt_bytes.read t.fd buf.buffer 0 buffer_size in
-          (len', buf, None)
-    in
+    Lwt.return Cstruct.empty )
+  else if content_length = unconsumed_length then (
+    t.body_read <- true ;
+    Lwt.return t.unconsumed )
+  else if content_length < unconsumed_length then (
+    let sz = unconsumed_length - content_length in
+    let buf = Cstruct.sub t.unconsumed 0 content_length in
+    let unconsumed = Cstruct.sub t.unconsumed content_length sz in
     t.unconsumed <- unconsumed ;
-    let continue () =
-      read t ~content_length ~total_read:(total_read + len') ~read_buffer_size
-    in
-    Lwt.return (Partial {body; continue}) )
-  else Lwt.return Done
+    t.body_read <- true ;
+    Lwt.return buf )
+  else
+    let sz = content_length - unconsumed_length in
+    let buf = Cstruct.create sz in
+    let+ sz' = Lwt_bytes.read t.fd buf.buffer 0 sz in
+    let buf = if sz' <> sz then Cstruct.sub buf 0 sz' else buf in
+    if unconsumed_length > 0 then Cstruct.append t.unconsumed buf else buf
 
 module IO_vector = Lwt_unix.IO_vectors
 
@@ -295,7 +265,7 @@ let write_status conn status_code reason_phrase =
 
 let rec handle_requests request_handler client_addr fd =
   _debug (fun k -> k "Waiting for new request ...\n%!") ;
-  let context = {fd; unconsumed= None; body_read= false} in
+  let context = {fd; unconsumed= Cstruct.empty; body_read= false} in
   request context client_addr
   >>= function
   | `Request req -> (

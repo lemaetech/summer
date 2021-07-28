@@ -39,11 +39,6 @@ and header = string * string
 (** ['a handler] represents a connection handler. *)
 and 'a handler = t -> request -> 'a Lwt.t
 
-(** [request_body] represents a request body stream data. *)
-and request_body =
-  | Partial of {body: Cstruct.t; continue: unit -> request_body Lwt.t}
-  | Done
-
 val io_buffer_size : int
 
 (** {2 Request} *)
@@ -57,10 +52,8 @@ val content_length : request -> int
 val pp_request : Format.formatter -> request -> unit
 val show_request : request -> string
 
-val request_body :
-  ?read_buffer_size:int -> content_length:int -> t -> request_body Lwt.t
-(** [request_body ?read_buffer_size ~content_length t] reads {!request_body}
-    stream instance from [t]. *)
+val read_body : request -> t -> Cstruct.t Lwt.t
+(** [read_body request t] reads {!request_body} stream instance from [t]. *)
 
 (** {2 Response} *)
 
