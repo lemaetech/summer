@@ -234,7 +234,7 @@ module IO_vector = Lwt_unix.IO_vectors
 type response = {status: status; headers: header list; body: Cstruct.t}
 
 (*-- Handler --*)
-type handler = t -> request -> response Lwt.t
+type handler = request -> response Lwt.t
 
 let response_bigstring ?(status = `OK) ?(headers = []) body =
   { status
@@ -289,7 +289,7 @@ let write_status conn status_code reason_phrase =
   IO_vector.append_bigarray iov status_line 0 (Lwt_bytes.length status_line) ;
   Lwt_unix.writev conn iov >|= fun _ -> ()
 
-let rec handle_requests (request_handler : handler) client_addr fd =
+let rec handle_requests (request_handler : t -> handler) client_addr fd =
   _debug (fun k -> k "Waiting for new request ...\n%!") ;
   let t = {fd; unconsumed= Cstruct.empty; body_read= false} in
   request t client_addr

@@ -143,9 +143,9 @@ val response_bigstring :
 (** {1 Handler} *)
 
 (** ['a handler] represents a connection handler. *)
-type handler = t -> request -> response Lwt.t
+type handler = request -> response Lwt.t
 
 val io_buffer_size : int
 
-val start : port:int -> handler -> unit
+val start : port:int -> (t -> handler) -> unit
 (** [start port request_handler] Starts HTTP/1.1 server at [port]. *)
