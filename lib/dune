@@ -1,12 +1,4 @@
 (library
  (name summer)
  (public_name summer)
- (libraries
-  cstruct
-  reparse
-  reparse-lwt-unix
-  http-multipart-formdata
-  angstrom
-  lwt
-  lwt.unix
-  fmt))
+ (libraries cstruct http-multipart-formdata angstrom lwt lwt.unix fmt))

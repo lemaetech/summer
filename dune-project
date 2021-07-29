@@ -25,14 +25,13 @@
  (depends
   (ocaml
    (>= 4.10.0))
-  (fmt
-   (>= 0.8.9))
-  (angstrom
-   (>= 0.15.0))
-  lwt
-  (bigstringaf
-   (>= 0.7.0))
+  cstruct
   (http-multipart-formdata
    (>= 2.0.1))
+  (angstrom
+   (>= 0.15.0))
+  (fmt
+   (>= 0.8.9))
+  lwt
   (ppx_expect :with-test)
   (ppx_deriving :with-test)))
