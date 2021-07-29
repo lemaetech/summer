@@ -66,7 +66,7 @@ val response_code : ?reason_phrase:string -> int -> response_code
     if [code] is not a valid HTTP code. *)
 
 val response_code_int : response_code -> int
-(** [response_code_int response_code] return the representation of
+(** [response_code_int response_code] return an integer representation of
     [response_code]. *)
 
 val response_code_reason_phrase : response_code -> string
