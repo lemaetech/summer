@@ -65,13 +65,18 @@ val response_code : ?reason_phrase:string -> int -> response_code
 (** [of_code code] returns {!status} represented by [code]. It raises exception
     if [code] is not a valid HTTP code. *)
 
-val response_code_to_code : response_code -> int
-(** [to_code t] is the integer representation of [t]. *)
+val response_code_int : response_code -> int
+(** [response_code_int response_code] return the representation of
+    [response_code]. *)
 
-val response_code_to_reason_phrase : response_code -> string
+val response_code_reason_phrase : response_code -> string
+(** [response_code_reason_phrase response_code] returns the reason phrase for
+    [response_code]. *)
 
 val response :
   ?response_code:response_code -> ?headers:header list -> string -> response
+(** [response ~response_code ~headers body] returns an {!type:response}. The
+    default value for [response_code] is [200]. *)
 
 val response_bigstring :
      ?response_code:response_code

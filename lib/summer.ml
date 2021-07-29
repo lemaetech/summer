@@ -285,8 +285,8 @@ let response_code ?(reason_phrase = "unknown") = function
         failwith (Printf.sprintf "code: %d is not a three-digit number" c)
       else (c, reason_phrase)
 
-let response_code_to_code : response_code -> int = fun (code, _) -> code
-let response_code_to_reason_phrase (_, phrase) = phrase
+let response_code_int : response_code -> int = fun (code, _) -> code
+let response_code_reason_phrase (_, phrase) = phrase
 let response_code_ok = response_code 200
 
 module IO_vector = Lwt_unix.IO_vectors
@@ -324,8 +324,8 @@ let write_response t {response_code; headers; body} =
   (* Append status line. *)
   let status_line =
     Format.sprintf "HTTP/1.1 %d %s\r\n"
-      (response_code_to_code response_code)
-      (response_code_to_reason_phrase response_code)
+      (response_code_int response_code)
+      (response_code_reason_phrase response_code)
     |> Bytes.unsafe_of_string
   in
   IO_vector.append_bytes iov status_line 0 (Bytes.length status_line) ;
