@@ -52,93 +52,32 @@ val read_body : request -> t -> Cstruct.t Lwt.t
 
 (** {1 Response} *)
 
-(** See {{:https://tools.ietf.org/html/rfc7231#section-6.2} RFC7231§6.2} for
-    more details. *)
-type informational = [`Continue | `Switching_protocols]
-
-(** See {{:https://tools.ietf.org/html/rfc7231#section-6.3} RFC7231§6.3} for
-    more details. *)
-type successful =
-  [ `OK
-  | `Created
-  | `Accepted
-  | `Non_authoritative_information
-  | `No_content
-  | `Reset_content
-  | `Partial_content ]
-
-(** See {{:https://tools.ietf.org/html/rfc7231#section-6.4} RFC7231§6.4} for
-    more details. *)
-type redirection =
-  [ `Multiple_choices
-  | `Moved_permanently
-  | `Found
-  | `See_other
-  | `Not_modified
-  | `Use_proxy
-  | `Temporary_redirect ]
-
-(** See {{:https://tools.ietf.org/html/rfc7231#section-6.5} RFC7231§6.5} for
-    more details. *)
-type client_error =
-  [ `Bad_request
-  | `Unauthorized
-  | `Payment_required
-  | `Forbidden
-  | `Not_found
-  | `Method_not_allowed
-  | `Not_acceptable
-  | `Proxy_authentication_required
-  | `Request_timeout
-  | `Conflict
-  | `Gone
-  | `Length_required
-  | `Precondition_failed
-  | `Payload_too_large
-  | `Uri_too_long
-  | `Unsupported_media_type
-  | `Range_not_satisfiable
-  | `Expectation_failed
-  | `Upgrade_required
-  | `I_m_a_teapot
-  | `Enhance_your_calm ]
-
-(** See {{:https://tools.ietf.org/html/rfc7231#section-6.6} RFC7231§6.6} for
-    more details. *)
-type server_error =
-  [ `Internal_server_error
-  | `Not_implemented
-  | `Bad_gateway
-  | `Service_unavailable
-  | `Gateway_timeout
-  | `Http_version_not_supported ]
-
-(** The status codes defined in the HTTP 1.1 RFCs *)
-type standard_status =
-  [informational | successful | redirection | client_error | server_error]
+type response
 
 (** See {{:https://tools.ietf.org/html/rfc7231#section-6} RFC7231§6} for more
     details on http response codes *)
-type status = [standard_status | `Status of int * string]
+type response_code
 
-val status_reason_phrase : status -> string
-(** [reason_phrase standard] is the example reason phrase provided by RFC7231
-    for the {!type:standard_status} status code. The RFC allows servers to use
-    reason phrases besides these in responses. *)
+val response_code_ok : response_code
+(** HTTP 200 response code *)
 
-val status_to_code : status -> int
-(** [to_code t] is the integer representation of [t]. *)
-
-val status_of_code : ?reason_phrase:string -> int -> status
+val response_code : ?reason_phrase:string -> int -> response_code
 (** [of_code code] returns {!status} represented by [code]. It raises exception
     if [code] is not a valid HTTP code. *)
 
-type response
+val response_code_to_code : response_code -> int
+(** [to_code t] is the integer representation of [t]. *)
 
-val response : ?status:status -> ?headers:header list -> string -> response
+val response_code_to_reason_phrase : response_code -> string
+
+val response :
+  ?response_code:response_code -> ?headers:header list -> string -> response
 
 val response_bigstring :
-  ?status:status -> ?headers:header list -> Cstruct.buffer -> response
+     ?response_code:response_code
+  -> ?headers:header list
+  -> Cstruct.buffer
+  -> response
 
 (** {1 Handler} *)
 

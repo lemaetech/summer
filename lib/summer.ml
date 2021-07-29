@@ -228,24 +228,86 @@ let read_body request t =
 
 (* Response *)
 
-include Status
+type response_code = int * string (* code, reason phrase *)
+
+let response_code ?(reason_phrase = "unknown") = function
+  (* Informational *)
+  | 100 -> (100, "Continue")
+  | 101 -> (101, "Switching Protocols")
+  (* Successful *)
+  | 200 -> (200, "OK")
+  | 201 -> (201, "Created")
+  | 202 -> (202, "Accepted")
+  | 203 -> (203, "Non-Authoritative Information")
+  | 204 -> (204, "No Content")
+  | 205 -> (205, "Reset Content")
+  | 206 -> (206, "Partial Content")
+  (* Redirection *)
+  | 300 -> (300, "Multiple Choices")
+  | 301 -> (301, "Moved Permanently")
+  | 302 -> (302, "Found")
+  | 303 -> (303, "See Other")
+  | 304 -> (304, "Not Modified")
+  | 305 -> (305, "Use Proxy")
+  | 306 -> (306, "Temporary Redirect")
+  (* Client error *)
+  | 400 -> (400, "Bad Request")
+  | 401 -> (401, "Unauthorized")
+  | 402 -> (402, "Payment Required")
+  | 403 -> (403, "Forbidden")
+  | 404 -> (404, "Not Found")
+  | 405 -> (405, "Method Not Allowed")
+  | 406 -> (406, "Not Acceptable")
+  | 407 -> (407, "Proxy Authentication Required")
+  | 408 -> (408, "Request Timeout")
+  | 409 -> (409, "Conflict")
+  | 410 -> (410, "Gone")
+  | 411 -> (411, "Length Required")
+  | 412 -> (412, "Precondition Failed")
+  | 413 -> (413, "Payload Too Large")
+  | 414 -> (414, "URI Too Long")
+  | 415 -> (415, "Unsupported Media Type")
+  | 416 -> (416, "Range Not Satisfiable")
+  | 417 -> (417, "Expectation Failed")
+  | 418 -> (418, "I'm a teapot") (* RFC 2342 *)
+  | 420 -> (420, "Enhance Your Calm")
+  | 426 -> (426, "Upgrade Required")
+  (* Server error *)
+  | 500 -> (500, "Internal Server Error")
+  | 501 -> (501, "Not Implemented")
+  | 502 -> (502, "Bad Gateway")
+  | 503 -> (503, "Service Unavailable")
+  | 504 -> (504, "Gateway Timeout")
+  | 505 -> (505, "HTTP Version Not Supported")
+  | c ->
+      if c < 0 then failwith (Printf.sprintf "code: %d is negative" c)
+      else if c < 100 || c > 999 then
+        failwith (Printf.sprintf "code: %d is not a three-digit number" c)
+      else (c, reason_phrase)
+
+let response_code_to_code : response_code -> int = fun (code, _) -> code
+let response_code_to_reason_phrase (_, phrase) = phrase
+let response_code_ok = response_code 200
+
 module IO_vector = Lwt_unix.IO_vectors
 
-type response = {status: status; headers: header list; body: Cstruct.t}
+type response =
+  {response_code: response_code; headers: header list; body: Cstruct.t}
 
 (*-- Handler --*)
 type handler = request -> response Lwt.t
 
-let response_bigstring ?(status = `OK) ?(headers = []) body =
-  { status
+let response_bigstring ?(response_code = response_code_ok) ?(headers = []) body
+    =
+  { response_code
   ; headers=
       List.map
         (fun (name, value) -> (String.lowercase_ascii name, value))
         headers
   ; body= Cstruct.of_bigarray body }
 
-let response ?(status = `OK) ?(headers = []) body =
-  response_bigstring ~status ~headers
+let response ?response_code ?headers body =
+  response_bigstring ?response_code ?headers
     (Bigstringaf.of_string body ~off:0 ~len:(String.length body))
 
 let headers_to_bytes headers =
@@ -256,13 +318,14 @@ let headers_to_bytes headers =
     headers ;
   (Buffer.length buf, Buffer.to_bytes buf)
 
-let write_response t {status; headers; body} =
+let write_response t {response_code; headers; body} =
   let iov = IO_vector.create () in
 
   (* Append status line. *)
   let status_line =
-    Format.sprintf "HTTP/1.1 %d %s\r\n" (status_to_code status)
-      (status_reason_phrase status)
+    Format.sprintf "HTTP/1.1 %d %s\r\n"
+      (response_code_to_code response_code)
+      (response_code_to_reason_phrase response_code)
     |> Bytes.unsafe_of_string
   in
   IO_vector.append_bytes iov status_line 0 (Bytes.length status_line) ;
