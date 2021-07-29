@@ -66,16 +66,16 @@ val response_code : ?reason_phrase:string -> int -> response_code
     if [code] is not a valid HTTP code. *)
 
 val response_code_int : response_code -> int
-(** [response_code_int response_code] return an integer representation of
+(** [response_code_int response_code] returns an integer representation of
     [response_code]. *)
 
 val response_code_reason_phrase : response_code -> string
-(** [response_code_reason_phrase response_code] returns the reason phrase for
+(** [response_code_reason_phrase response_code] returns reason phrase for
     [response_code]. *)
 
 val response :
   ?response_code:response_code -> ?headers:header list -> string -> response
-(** [response ~response_code ~headers body] returns an {!type:response}. The
+(** [response ~response_code ~headers body] returns a {!type:response}. The
     default value for [response_code] is [200]. *)
 
 val response_bigstring :
@@ -83,6 +83,7 @@ val response_bigstring :
   -> ?headers:header list
   -> Cstruct.buffer
   -> response
+(** [response_bigstring] similar to {!response} except body is a bigstring. *)
 
 (** {1 Handler} *)
 
