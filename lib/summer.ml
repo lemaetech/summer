@@ -35,7 +35,8 @@ type request =
   ; (* body_read - denotes if the request body has been read or not. This is used
            to determine if the connection socket needs to be drained before
            reading another request in the same connection. *)
-    mutable body_read: bool }
+    mutable body_read: bool
+  ; mutable multipart_reader: Http_multipart_formdata.reader option }
 
 (* https://datatracker.ietf.org/doc/html/rfc7231#section-4 *)
 and meth =
@@ -188,14 +189,14 @@ let request fd unconsumed client_addr =
     request' <|> eof
   in
   let open Lwt.Syntax in
-  let rec parse parse_state =
+  let rec parse_request parse_state =
     match parse_state with
     | Buffered.Partial k ->
         let unconsumed_length = Cstruct.length unconsumed in
         let len = io_buffer_size - unconsumed_length in
         let buf = Cstruct.create len in
         let* len' = Lwt_bytes.read fd buf.buffer 0 len in
-        if len' = 0 then parse (k `Eof)
+        if len' = 0 then parse_request (k `Eof)
         else
           let buf = if len' != len then Cstruct.sub buf 0 len' else buf in
           let bigstring =
@@ -203,7 +204,7 @@ let request fd unconsumed client_addr =
             else buf )
             |> Cstruct.to_bigarray
           in
-          parse (k (`Bigstring bigstring))
+          parse_request (k (`Bigstring bigstring))
     | Buffered.Done ({off; len; buf}, x) ->
         let unconsumed =
           if len > 0 then Cstruct.of_bigarray ~off ~len buf else Cstruct.empty
@@ -212,7 +213,7 @@ let request fd unconsumed client_addr =
     | Buffered.Fail (_, marks, err) ->
         Lwt.return (Error (String.concat " > " marks ^ ": " ^ err))
   in
-  let+ parse_result = parse (Buffered.parse request_or_eof) in
+  let+ parse_result = parse_request (Buffered.parse request_or_eof) in
   match parse_result with
   | Ok (x, unconsumed) -> (
     match x with
@@ -226,14 +227,17 @@ let request fd unconsumed client_addr =
           ; client_addr= socketaddr_to_string client_addr
           ; fd
           ; body_read= false
-          ; unconsumed }
+          ; unconsumed
+          ; multipart_reader= None }
     | `Connection_closed -> `Connection_closed )
   | Error x -> `Error x
 
 open Lwt.Infix
 open Lwt.Syntax
 
-let read_body request =
+exception Request_error of string
+
+let body request =
   match content_length request with
   | Some content_length ->
       let unconsumed_length = Cstruct.length request.unconsumed in
@@ -262,6 +266,51 @@ let read_body request =
         else buf )
         |> Cstruct.to_string
   | None -> Lwt.fail_with "content-length header not found"
+
+(* Form *)
+
+let multipart ?(body_buffer_size = io_buffer_size) request =
+  let body_buffer_size =
+    if body_buffer_size > io_buffer_size then io_buffer_size
+    else body_buffer_size
+  in
+  let rec read = function
+    | `End -> Lwt.return `End
+    | `Header _ as part_header -> Lwt.return part_header
+    | `Body _ as body -> Lwt.return body
+    | `Body_end -> Lwt.return `Body_end
+    | `Awaiting_input k ->
+        let buf = Cstruct.create io_buffer_size in
+        let* len' = Lwt_bytes.read request.fd buf.buffer 0 io_buffer_size in
+        let buf =
+          if len' <> io_buffer_size then Cstruct.sub buf 0 len' else buf
+        in
+        let buf =
+          if Cstruct.length request.unconsumed > 0 then
+            Cstruct.append request.unconsumed buf
+          else buf
+        in
+        read (k (`Cstruct buf))
+    | `Error error -> raise (Request_error error)
+  in
+  match request.multipart_reader with
+  | Some reader -> read (Http_multipart_formdata.read reader)
+  | None ->
+      let boundary =
+        match List.assoc_opt "content-type" request.headers with
+        | Some ct -> (
+          match Http_multipart_formdata.boundary ct with
+          | Ok boundary -> boundary
+          | Error err -> raise (Request_error err) )
+        | None ->
+            raise (Request_error "[multipart] content-type header not found")
+      in
+      let reader =
+        Http_multipart_formdata.reader ~read_buffer_size:body_buffer_size
+          boundary `Incremental
+      in
+      request.multipart_reader <- Some reader ;
+      read (Http_multipart_formdata.read reader)
 
 (* Response *)
 
@@ -401,7 +450,7 @@ let rec handle_requests unconsumed handler client_addr fd =
           (* Drain request body content (bytes) from socket before reading a new request
              in the same connection. *)
           ( if (not req.body_read) && Option.is_some req.content_length then
-            read_body req >|= fun _ -> ()
+            body req >|= fun _ -> ()
           else Lwt.return () )
           >>= fun () -> handle_requests req.unconsumed handler client_addr fd )
   | `Connection_closed ->

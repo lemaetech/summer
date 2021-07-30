@@ -44,8 +44,29 @@ val content_length : request -> int option
 val pp_request : Format.formatter -> request -> unit
 val show_request : request -> string
 
-val read_body : request -> string Lwt.t
-(** [read_body request t] returns request body. *)
+val body : request -> string Lwt.t
+(** [body request t] returns request body. *)
+
+(** {1 Form} *)
+
+val multipart :
+     ?body_buffer_size:int
+  -> request
+  -> [ `End  (** Reading of multipart form is complete. *)
+     | `Header of Http_multipart_formdata.part_header
+       (** Multipart part header. *)
+     | `Body of Cstruct.t  (** Multipart part body data. *)
+     | `Body_end  (** End of multipart body. *) ]
+     Lwt.t
+(** [multipart ?body_buffer_size request] streams HTTP [multipart/formdata]
+    content-type data. [multipart/formdata] content-type is used when uploading
+    files to HTTP web servers.
+
+    [body_buffer_size] denotes the size of bytes to read per [multipart] [`Body]
+    part. The default value is {!io_buffer_size}.
+
+    If the request is an invalid [multipart/formdata] content-type then it
+    returns [400 Bad request] response. *)
 
 (** {1 Response} *)
 
@@ -65,8 +86,8 @@ val response_code_400 : response_code
 (** HTTP 400 Bad Request response code *)
 
 val response_code : ?reason_phrase:string -> int -> response_code
-(** [response code] returns {!response_code} represented by [code]. It raises
-    exception if [code] is not a valid HTTP code.
+(** [response code] returns {!type:response_code} represented by [code]. It
+    raises exception if [code] is not a valid HTTP code.
 
     [reason_pharse] default value is "unknown". This is the reason phrase used
     if [code] is not a standard http response code.
@@ -92,7 +113,7 @@ val response_bigstring :
   -> ?headers:header list
   -> Cstruct.buffer
   -> response
-(** [response_bigstring] similar to {!response} except body is a bigstring. *)
+(** [response_bigstring] similar to {!type:response} except body is a bigstring. *)
 
 (** {1 Handler} *)
 

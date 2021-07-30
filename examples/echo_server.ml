@@ -16,7 +16,7 @@ let () =
     [("-p", Arg.Set_int port, " Listening port number (3000 by default)")]
     ignore "An echo HTTP server using summer!" ;
   Summer.start ~port:!port (fun req ->
-      let+ body = Summer.read_body req in
+      let+ body = Summer.body req in
       let text = Format.sprintf "%s\n\n%s" (Summer.show_request req) body in
       Summer.response
         ~headers:[("content-type", "text/plain; charset=utf-8")]
