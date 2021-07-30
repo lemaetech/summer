@@ -398,7 +398,7 @@ let rec handle_requests unconsumed handler client_addr fd =
       match List.assoc_opt "Connection" req.headers with
       | Some "close" -> Lwt_unix.close fd
       | Some _ | None ->
-          (* Drain socket of request body bytes if any before reading a new request
+          (* Drain request body content (bytes) from socket before reading a new request
              in the same connection. *)
           ( if (not req.body_read) && Option.is_some req.content_length then
             read_body req >|= fun _ -> ()
