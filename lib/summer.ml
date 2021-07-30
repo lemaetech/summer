@@ -22,17 +22,19 @@ let _debug k =
     k (fun fmt ->
         Printf.kfprintf (fun oc -> Printf.fprintf oc "\n%!") stdout fmt )
 
-type t =
-  { fd: Lwt_unix.file_descr
-  ; mutable unconsumed: Cstruct.t
-  ; mutable body_read: bool }
-
 type request =
   { meth: meth
   ; request_target: string
   ; http_version: int * int
   ; headers: (string * string) list
-  ; client_addr: Lwt_unix.sockaddr }
+  ; client_addr: string (* IP address of client. *)
+  ; fd: Lwt_unix.file_descr
+  ; (* unconsumed - bytes remaining after request is processed *)
+    mutable unconsumed: Cstruct.t
+  ; (* body_read - denotes if the request body has been read or not. This is used
+           to determine if the connection socket needs to be drained before
+           reading another request in the same connection. *)
+    mutable body_read: bool }
 
 (* https://datatracker.ietf.org/doc/html/rfc7231#section-4 *)
 and meth =
@@ -163,68 +165,90 @@ let request_line =
   in
   commit *> return (meth, request_target, http_version)
 
-let request t client_addr =
+let socketaddr_to_string = function
+  | Unix.ADDR_UNIX s -> s
+  | Unix.ADDR_INET (inet, port) ->
+      Format.sprintf "%s:%d" (Unix.string_of_inet_addr inet) port
+
+let request fd unconsumed client_addr =
   let request_or_eof =
     let request' =
       (let* meth, request_target, http_version = request_line in
        let+ headers = header_fields in
-       `Request {meth; request_target; http_version; headers; client_addr} )
+       `Request (meth, request_target, http_version, headers) )
       <* crlf
     in
-    let eof = end_of_input >>| fun () -> `End in
+    let eof = end_of_input >>| fun () -> `Connection_closed in
     request' <|> eof
   in
   let open Lwt.Syntax in
-  let rec read reader = function
+  let rec parse parse_state =
+    match parse_state with
     | Buffered.Partial k ->
-        let len = io_buffer_size - Cstruct.length t.unconsumed in
+        let unconsumed_length = Cstruct.length unconsumed in
+        let len = io_buffer_size - unconsumed_length in
         let buf = Cstruct.create len in
-        let* len' = Lwt_bytes.read t.fd buf.buffer 0 len in
-        if len' = 0 then read reader (k `Eof)
-        else if len' != len then (
-          let buf' = Cstruct.create len' in
-          Cstruct.blit buf 0 buf' 0 len' ;
-          let buf'' = Cstruct.(append t.unconsumed buf') in
-          read reader (k (`Bigstring (Cstruct.to_bigarray buf''))) )
-        else read reader (k (`Bigstring (Cstruct.to_bigarray buf)))
+        let* len' = Lwt_bytes.read fd buf.buffer 0 len in
+        if len' = 0 then parse (k `Eof)
+        else
+          let buf = if len' != len then Cstruct.sub buf 0 len' else buf in
+          let bigstring =
+            ( if unconsumed_length > 0 then Cstruct.(append unconsumed buf)
+            else buf )
+            |> Cstruct.to_bigarray
+          in
+          parse (k (`Bigstring bigstring))
     | Buffered.Done ({off; len; buf}, x) ->
-        if len > 0 then reader.unconsumed <- Cstruct.of_bigarray ~off ~len buf
-        else reader.unconsumed <- Cstruct.empty ;
-        Lwt.return (Ok x)
-    | Buffered.Fail ({off; len; buf}, marks, err) ->
-        if len > 0 then reader.unconsumed <- Cstruct.of_bigarray ~off ~len buf
-        else reader.unconsumed <- Cstruct.empty ;
+        let unconsumed =
+          if len > 0 then Cstruct.of_bigarray ~off ~len buf else Cstruct.empty
+        in
+        Lwt.return (Ok (x, unconsumed))
+    | Buffered.Fail (_, marks, err) ->
         Lwt.return (Error (String.concat " > " marks ^ ": " ^ err))
   in
-  let+ read_result = read t (Buffered.parse request_or_eof) in
-  match read_result with Ok x -> x | Error x -> `Error x
+  let+ parse_result = parse (Buffered.parse request_or_eof) in
+  match parse_result with
+  | Ok (x, unconsumed) -> (
+    match x with
+    | `Request (meth, request_target, http_version, headers) ->
+        `Request
+          { meth
+          ; request_target
+          ; http_version
+          ; headers
+          ; client_addr= socketaddr_to_string client_addr
+          ; fd
+          ; body_read= false
+          ; unconsumed }
+    | `Connection_closed -> `Connection_closed )
+  | Error x -> `Error x
 
 open Lwt.Infix
 open Lwt.Syntax
 
-let read_body request t =
+let read_body request =
   let content_length = content_length request in
-  let unconsumed_length = Cstruct.length t.unconsumed in
-  if content_length = 0 || t.body_read then (
-    t.body_read <- true ;
-    Lwt.return Cstruct.empty )
+  let unconsumed_length = Cstruct.length request.unconsumed in
+  if content_length = 0 || request.body_read then Lwt.return ""
   else if content_length = unconsumed_length then (
-    t.body_read <- true ;
-    Lwt.return t.unconsumed )
+    request.body_read <- true ;
+    Lwt.return (Cstruct.to_string request.unconsumed) )
   else if content_length < unconsumed_length then (
     let sz = unconsumed_length - content_length in
-    let buf = Cstruct.sub t.unconsumed 0 content_length in
-    let unconsumed = Cstruct.sub t.unconsumed content_length sz in
-    t.unconsumed <- unconsumed ;
-    t.body_read <- true ;
+    let buf = Cstruct.(sub request.unconsumed 0 content_length |> to_string) in
+    let unconsumed = Cstruct.sub request.unconsumed content_length sz in
+    request.unconsumed <- unconsumed ;
+    request.body_read <- true ;
     Lwt.return buf )
   else
     let sz = content_length - unconsumed_length in
     let buf = Cstruct.create sz in
-    let+ sz' = Lwt_bytes.read t.fd buf.buffer 0 sz in
+    let+ sz' = Lwt_bytes.read request.fd buf.buffer 0 sz in
     let buf = if sz' <> sz then Cstruct.sub buf 0 sz' else buf in
-    t.body_read <- true ;
-    if unconsumed_length > 0 then Cstruct.append t.unconsumed buf else buf
+    request.body_read <- true ;
+    ( if unconsumed_length > 0 then Cstruct.append request.unconsumed buf
+    else buf )
+    |> Cstruct.to_string
 
 (* Response *)
 
@@ -287,7 +311,9 @@ let response_code ?(reason_phrase = "unknown") = function
 
 let response_code_int : response_code -> int = fun (code, _) -> code
 let response_code_reason_phrase (_, phrase) = phrase
-let response_code_ok = response_code 200
+let response_code_200 = response_code 200
+let response_code_500 = response_code 500
+let response_code_400 = response_code 400
 
 module IO_vector = Lwt_unix.IO_vectors
 
@@ -297,7 +323,7 @@ type response =
 (*-- Handler --*)
 type handler = request -> response Lwt.t
 
-let response_bigstring ?(response_code = response_code_ok) ?(headers = []) body
+let response_bigstring ?(response_code = response_code_200) ?(headers = []) body
     =
   { response_code
   ; headers=
@@ -310,18 +336,10 @@ let response ?response_code ?headers body =
   response_bigstring ?response_code ?headers
     (Bigstringaf.of_string body ~off:0 ~len:(String.length body))
 
-let headers_to_bytes headers =
-  let buf = Buffer.create 0 in
-  List.iter
-    (fun (name, value) ->
-      Format.sprintf "%s: %s\r\n" name value |> Buffer.add_string buf )
-    headers ;
-  (Buffer.length buf, Buffer.to_bytes buf)
-
-let write_response t {response_code; headers; body} =
+let write_response fd {response_code; headers; body} =
   let iov = IO_vector.create () in
 
-  (* Append status line. *)
+  (* Write response status line. *)
   let status_line =
     Format.sprintf "HTTP/1.1 %d %s\r\n"
       (response_code_int response_code)
@@ -330,52 +348,51 @@ let write_response t {response_code; headers; body} =
   in
   IO_vector.append_bytes iov status_line 0 (Bytes.length status_line) ;
 
-  (* Append headers. *)
+  (* Write response headers. *)
   let headers =
     if List.mem_assoc "content-length" headers then headers
     else ("content-length", Cstruct.length body |> string_of_int) :: headers
   in
-  let len, header_bytes = headers_to_bytes headers in
-  IO_vector.append_bytes iov header_bytes 0 len ;
+  List.iter
+    (fun (name, v) ->
+      let buf = Format.sprintf "%s: %s\r\n" name v |> Bytes.unsafe_of_string in
+      IO_vector.append_bytes iov buf 0 (Bytes.length buf) )
+    headers ;
 
+  (* Write response body. *)
   IO_vector.append_bytes iov (Bytes.unsafe_of_string "\r\n") 0 2 ;
-  IO_vector.append_bigarray iov (Cstruct.to_bigarray body) 0
-    (Cstruct.length body) ;
-  Lwt_unix.writev t.fd iov >|= fun _ -> ()
+  if Cstruct.length body > 0 then
+    IO_vector.append_bigarray iov (Cstruct.to_bigarray body) 0
+      (Cstruct.length body) ;
 
-let write_status conn status_code reason_phrase =
-  let iov = IO_vector.create () in
-  let status_line =
-    Format.sprintf "HTTP/1.1 %d %s\r\n" status_code reason_phrase
-    |> Lwt_bytes.of_string
-  in
-  IO_vector.append_bigarray iov status_line 0 (Lwt_bytes.length status_line) ;
-  Lwt_unix.writev conn iov >|= fun _ -> ()
+  Lwt_unix.writev fd iov >|= fun _ -> ()
 
-let rec handle_requests (request_handler : t -> handler) client_addr fd =
+let rec handle_requests unconsumed handler client_addr fd =
   _debug (fun k -> k "Waiting for new request ...\n%!") ;
-  let t = {fd; unconsumed= Cstruct.empty; body_read= false} in
-  request t client_addr
+  request fd unconsumed client_addr
   >>= function
   | `Request req -> (
       _debug (fun k -> k "%s\n%!" (show_request req)) ;
       Lwt.catch
         (fun () ->
-          let* response = request_handler t req in
-          write_response t response )
+          let* response = handler req in
+          write_response fd response )
         (fun exn ->
-          _debug (fun k -> k "Unhandled exception: %s" (Printexc.to_string exn)) ;
-          write_status fd 500 "Internal Server Error" )
+          _debug (fun k ->
+              k "Unhandled exception: %s" (Printexc.to_string exn) ) ;
+          write_response fd (response ~response_code:response_code_500 "") )
       >>= fun () ->
       match List.assoc_opt "Connection" req.headers with
       | Some "close" -> Lwt_unix.close fd
-      | Some _ | None -> handle_requests request_handler client_addr fd )
-  | `End ->
-      _debug (fun k -> k "Closing connection") ;
+      | Some _ | None -> handle_requests req.unconsumed handler client_addr fd )
+  | `Connection_closed ->
+      _debug (fun k -> k "Client closed connection") ;
       Lwt_unix.close fd
   | `Error e ->
-      _debug (fun k -> k "Error: %s\nClosing connection" e) ;
-      write_status fd 400 "Bad Request" >>= fun () -> Lwt_unix.close fd
+      _debug (fun k ->
+          k "Error while parsing request: %s\nClosing connection" e ) ;
+      write_response fd (response ~response_code:response_code_400 "")
+      >>= fun () -> Lwt_unix.close fd
 
 let start ~port request_handler =
   let listen_address = Unix.(ADDR_INET (inet_addr_loopback, port)) in
@@ -383,7 +400,7 @@ let start ~port request_handler =
   Lwt.async (fun () ->
       Lwt_io.establish_server_with_client_socket ~backlog:11_000 ~no_close:true
         listen_address
-        (handle_requests request_handler)
+        (handle_requests Cstruct.empty request_handler)
       >>= fun _server -> Lwt.return () ) ;
   let forever, _ = Lwt.wait () in
   Lwt_main.run forever
