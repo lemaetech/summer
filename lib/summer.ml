@@ -274,7 +274,7 @@ let multipart ?(body_buffer_size = io_buffer_size) request =
     if body_buffer_size > io_buffer_size then io_buffer_size
     else body_buffer_size
   in
-  let rec read = function
+  let rec parse_part = function
     | `End -> Lwt.return `End
     | `Header _ as part_header -> Lwt.return part_header
     | `Body _ as body -> Lwt.return body
@@ -290,11 +290,11 @@ let multipart ?(body_buffer_size = io_buffer_size) request =
             Cstruct.append request.unconsumed buf
           else buf
         in
-        read (k (`Cstruct buf))
+        parse_part (k (`Cstruct buf))
     | `Error error -> raise (Request_error error)
   in
   match request.multipart_reader with
-  | Some reader -> read (Http_multipart_formdata.read reader)
+  | Some reader -> parse_part (Http_multipart_formdata.read reader)
   | None ->
       let boundary =
         match List.assoc_opt "content-type" request.headers with
@@ -310,7 +310,7 @@ let multipart ?(body_buffer_size = io_buffer_size) request =
           boundary `Incremental
       in
       request.multipart_reader <- Some reader ;
-      read (Http_multipart_formdata.read reader)
+      parse_part (Http_multipart_formdata.read reader)
 
 let multipart_all request =
   let rec read_parts parts =
