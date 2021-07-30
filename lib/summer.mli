@@ -40,7 +40,7 @@ val target : request -> string
 val http_version : request -> int * int
 val headers : request -> header list
 val client_addr : request -> string
-val content_length : request -> int
+val content_length : request -> int option
 val pp_request : Format.formatter -> request -> unit
 val show_request : request -> string
 

@@ -26,6 +26,7 @@ type request =
   { meth: meth
   ; request_target: string
   ; http_version: int * int
+  ; content_length: int option
   ; headers: (string * string) list
   ; client_addr: string (* IP address of client. *)
   ; fd: Lwt_unix.file_descr
@@ -95,10 +96,7 @@ let show_request t =
   let fmt = Format.formatter_of_buffer buf in
   pp_request fmt t ; Format.fprintf fmt "%!" ; Buffer.contents buf
 
-let content_length request =
-  match List.assoc_opt "content-length" request.headers with
-  | Some len -> ( try int_of_string len with _ -> 0 )
-  | None -> 0
+let content_length request = request.content_length
 
 let method_ meth =
   String.uppercase_ascii meth
@@ -174,8 +172,16 @@ let request fd unconsumed client_addr =
   let request_or_eof =
     let request' =
       (let* meth, request_target, http_version = request_line in
-       let+ headers = header_fields in
-       `Request (meth, request_target, http_version, headers) )
+       let* headers = header_fields in
+       let+ content_length =
+         match List.assoc_opt "content-length" headers with
+         | Some len -> (
+           try return (Some (int_of_string len))
+           with _ ->
+             fail (Format.sprintf "Invalid content-length value: %s" len) )
+         | None -> return None
+       in
+       `Request (meth, request_target, http_version, content_length, headers) )
       <* crlf
     in
     let eof = end_of_input >>| fun () -> `Connection_closed in
@@ -210,11 +216,12 @@ let request fd unconsumed client_addr =
   match parse_result with
   | Ok (x, unconsumed) -> (
     match x with
-    | `Request (meth, request_target, http_version, headers) ->
+    | `Request (meth, request_target, http_version, content_length, headers) ->
         `Request
           { meth
           ; request_target
           ; http_version
+          ; content_length
           ; headers
           ; client_addr= socketaddr_to_string client_addr
           ; fd
@@ -227,28 +234,34 @@ open Lwt.Infix
 open Lwt.Syntax
 
 let read_body request =
-  let content_length = content_length request in
-  let unconsumed_length = Cstruct.length request.unconsumed in
-  if content_length = 0 || request.body_read then Lwt.return ""
-  else if content_length = unconsumed_length then (
-    request.body_read <- true ;
-    Lwt.return (Cstruct.to_string request.unconsumed) )
-  else if content_length < unconsumed_length then (
-    let sz = unconsumed_length - content_length in
-    let buf = Cstruct.(sub request.unconsumed 0 content_length |> to_string) in
-    let unconsumed = Cstruct.sub request.unconsumed content_length sz in
-    request.unconsumed <- unconsumed ;
-    request.body_read <- true ;
-    Lwt.return buf )
-  else
-    let sz = content_length - unconsumed_length in
-    let buf = Cstruct.create sz in
-    let+ sz' = Lwt_bytes.read request.fd buf.buffer 0 sz in
-    let buf = if sz' <> sz then Cstruct.sub buf 0 sz' else buf in
-    request.body_read <- true ;
-    ( if unconsumed_length > 0 then Cstruct.append request.unconsumed buf
-    else buf )
-    |> Cstruct.to_string
+  match content_length request with
+  | Some content_length ->
+      let unconsumed_length = Cstruct.length request.unconsumed in
+      if content_length = 0 || request.body_read then (
+        request.body_read <- true ;
+        Lwt.return "" )
+      else if content_length = unconsumed_length then (
+        request.body_read <- true ;
+        Lwt.return (Cstruct.to_string request.unconsumed) )
+      else if content_length < unconsumed_length then (
+        let sz = unconsumed_length - content_length in
+        let buf =
+          Cstruct.(sub request.unconsumed 0 content_length |> to_string)
+        in
+        let unconsumed = Cstruct.sub request.unconsumed content_length sz in
+        request.unconsumed <- unconsumed ;
+        request.body_read <- true ;
+        Lwt.return buf )
+      else
+        let sz = content_length - unconsumed_length in
+        let buf = Cstruct.create sz in
+        let+ sz' = Lwt_bytes.read request.fd buf.buffer 0 sz in
+        let buf = if sz' <> sz then Cstruct.sub buf 0 sz' else buf in
+        request.body_read <- true ;
+        ( if unconsumed_length > 0 then Cstruct.append request.unconsumed buf
+        else buf )
+        |> Cstruct.to_string
+  | None -> Lwt.fail_with "content-length header not found"
 
 (* Response *)
 
@@ -384,7 +397,13 @@ let rec handle_requests unconsumed handler client_addr fd =
       >>= fun () ->
       match List.assoc_opt "Connection" req.headers with
       | Some "close" -> Lwt_unix.close fd
-      | Some _ | None -> handle_requests req.unconsumed handler client_addr fd )
+      | Some _ | None ->
+          (* Drain socket of request body bytes if any before reading a new request
+             in the same connection. *)
+          ( if (not req.body_read) && Option.is_some req.content_length then
+            read_body req >|= fun _ -> ()
+          else Lwt.return () )
+          >>= fun () -> handle_requests req.unconsumed handler client_addr fd )
   | `Connection_closed ->
       _debug (fun k -> k "Client closed connection") ;
       Lwt_unix.close fd
