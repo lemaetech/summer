@@ -275,7 +275,15 @@ let multipart ?(body_buffer_size = io_buffer_size) request =
     else body_buffer_size
   in
   let rec parse_part = function
-    | `End -> Lwt.return `End
+    | `End ->
+        let unconsumed =
+          Http_multipart_formdata.unconsumed
+            (Option.get request.multipart_reader)
+        in
+        request.unconsumed <- unconsumed ;
+        request.body_read <- true ;
+        request.multipart_reader <- None ;
+        Lwt.return `End
     | `Header _ as part_header -> Lwt.return part_header
     | `Body _ as body -> Lwt.return body
     | `Body_end -> Lwt.return `Body_end
@@ -286,8 +294,10 @@ let multipart ?(body_buffer_size = io_buffer_size) request =
           if len' <> io_buffer_size then Cstruct.sub buf 0 len' else buf
         in
         let buf =
-          if Cstruct.length request.unconsumed > 0 then
-            Cstruct.append request.unconsumed buf
+          if Cstruct.length request.unconsumed > 0 then (
+            let buf = Cstruct.append request.unconsumed buf in
+            request.unconsumed <- Cstruct.empty ;
+            buf )
           else buf
         in
         parse_part (k (`Cstruct buf))
