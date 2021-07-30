@@ -55,7 +55,9 @@ val multipart :
   -> [ `End  (** Reading of multipart form is complete. *)
      | `Header of Http_multipart_formdata.part_header
        (** Multipart part header. *)
-     | `Body of Cstruct.t  (** Multipart part body data. *)
+     | `Body of Cstruct.t
+       (** Multipart part body data. The size of body is determined by
+           [body_buffer_size]. *)
      | `Body_end  (** End of multipart body. *) ]
      Lwt.t
 (** [multipart ?body_buffer_size request] streams HTTP [multipart/formdata]
