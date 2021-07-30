@@ -265,7 +265,7 @@ let body request =
         ( if unconsumed_length > 0 then Cstruct.append request.unconsumed buf
         else buf )
         |> Cstruct.to_string
-  | None -> Lwt.fail_with "content-length header not found"
+  | None -> raise (Request_error "content-length header not found")
 
 (* Form *)
 
@@ -469,10 +469,14 @@ let rec handle_requests unconsumed handler client_addr fd =
         (fun () ->
           let* response = handler req in
           write_response fd response )
-        (fun exn ->
-          _debug (fun k ->
-              k "Unhandled exception: %s" (Printexc.to_string exn) ) ;
-          write_response fd (response ~response_code:response_code_500 "") )
+        (function
+          | Request_error error ->
+              _debug (fun k -> k "Request error: %s" error) ;
+              write_response fd (response ~response_code:response_code_400 "")
+          | exn ->
+              _debug (fun k -> k "Exception: %s" (Printexc.to_string exn)) ;
+              write_response fd (response ~response_code:response_code_500 "")
+          )
       >>= fun () ->
       match List.assoc_opt "Connection" req.headers with
       | Some "close" -> Lwt_unix.close fd
