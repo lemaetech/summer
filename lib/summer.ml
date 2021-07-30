@@ -53,6 +53,8 @@ and meth =
 and header = string * string
 (* (name,value) *)
 
+exception Request_error of string
+
 let io_buffer_size = 65536 (* UNIX_BUFFER_SIZE 4.0.0 *)
 
 let meth t = t.meth
@@ -179,7 +181,9 @@ let request fd unconsumed client_addr =
          | Some len -> (
            try return (Some (int_of_string len))
            with _ ->
-             fail (Format.sprintf "Invalid content-length value: %s" len) )
+             raise
+               (Request_error
+                  (Format.sprintf "Invalid content-length value: %s" len) ) )
          | None -> return None
        in
        `Request (meth, request_target, http_version, content_length, headers) )
@@ -234,8 +238,6 @@ let request fd unconsumed client_addr =
 
 open Lwt.Infix
 open Lwt.Syntax
-
-exception Request_error of string
 
 let body request =
   match content_length request with
@@ -468,8 +470,18 @@ let rec handle_requests unconsumed handler client_addr fd =
       Lwt.catch
         (fun () ->
           let* response = handler req in
-          write_response fd response )
-        (function
+          write_response fd response
+          >>= fun () ->
+          match List.assoc_opt "Connection" req.headers with
+          | Some "close" -> Lwt.return `Close_connection
+          | Some _ | None ->
+              (* Drain request body content (bytes) from fd before reading a new request
+                 in the same connection. *)
+              if (not req.body_read) && Option.is_some req.content_length then
+                body req >|= fun _ -> `Next_request
+              else Lwt.return `Next_request )
+        (fun exn ->
+          ( match exn with
           | Request_error error ->
               _debug (fun k -> k "Request error: %s" error) ;
               write_response fd (response ~response_code:response_code_400 "")
@@ -477,16 +489,10 @@ let rec handle_requests unconsumed handler client_addr fd =
               _debug (fun k -> k "Exception: %s" (Printexc.to_string exn)) ;
               write_response fd (response ~response_code:response_code_500 "")
           )
-      >>= fun () ->
-      match List.assoc_opt "Connection" req.headers with
-      | Some "close" -> Lwt_unix.close fd
-      | Some _ | None ->
-          (* Drain request body content (bytes) from socket before reading a new request
-             in the same connection. *)
-          ( if (not req.body_read) && Option.is_some req.content_length then
-            body req >|= fun _ -> ()
-          else Lwt.return () )
-          >>= fun () -> handle_requests req.unconsumed handler client_addr fd )
+          >|= fun () -> `Close_connection )
+      >>= function
+      | `Close_connection -> Lwt_unix.close fd
+      | `Next_request -> handle_requests req.unconsumed handler client_addr fd )
   | `Connection_closed ->
       _debug (fun k -> k "Client closed connection") ;
       Lwt_unix.close fd
