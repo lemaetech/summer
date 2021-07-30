@@ -68,6 +68,12 @@ val multipart :
     If the request is an invalid [multipart/formdata] content-type then it
     returns [400 Bad request] response. *)
 
+val multipart_all :
+  request -> (Http_multipart_formdata.part_header * Cstruct.t) list Lwt.t
+(** [multipart_all request] is a non streaming version of {!val:multipart}. It
+    returns a list of multipart tuples - (part_header, body) - where each tuple
+    represents a multipart part. *)
+
 (** {1 Response} *)
 
 type response

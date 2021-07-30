@@ -312,6 +312,26 @@ let multipart ?(body_buffer_size = io_buffer_size) request =
       request.multipart_reader <- Some reader ;
       read (Http_multipart_formdata.read reader)
 
+let multipart_all request =
+  let rec read_parts parts =
+    multipart request
+    >>= function
+    | `End -> Lwt.return (List.rev parts)
+    | `Header header ->
+        let* body = read_body Cstruct.empty in
+        read_parts ((header, body) :: parts)
+    | `Error e -> raise (Request_error e)
+    | _ -> assert false
+  and read_body body =
+    multipart request
+    >>= function
+    | `Body_end -> Lwt.return body
+    | `Body buf -> read_body (Cstruct.append body buf)
+    | `Error e -> raise (Request_error e)
+    | _ -> assert false
+  in
+  read_parts []
+
 (* Response *)
 
 type response_code = int * string (* code, reason phrase *)
