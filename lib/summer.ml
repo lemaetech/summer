@@ -435,6 +435,16 @@ let response ?response_code ?headers body =
   response_bigstring ?response_code ?headers
     (Bigstringaf.of_string body ~off:0 ~len:(String.length body))
 
+let text body =
+  response ~response_code:response_code_200
+    ~headers:[("content-type", "text/plain; charset=UTF-8")]
+    body
+
+let html body =
+  response ~response_code:response_code_200
+    ~headers:[("content-type", "text/html; charset=UTF-8")]
+    body
+
 (* Cookies *)
 
 let add_cookie cookie response =

@@ -123,6 +123,14 @@ val response_bigstring :
   -> response
 (** [response_bigstring] similar to {!type:response} except body is a bigstring. *)
 
+val text : string -> response
+(** [text body] creates a response with HTTP status 200 and content-type of
+    ["text/plain; charset=utf-8"]. *)
+
+val html : string -> response
+(** [text body] creates a response with HTTP status 200 and content-type of
+    ["text/html; charset=UTF-8"]. *)
+
 (** {2 Cookies} *)
 
 val add_cookie : Http_cookie.t -> response -> response

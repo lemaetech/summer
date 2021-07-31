@@ -18,7 +18,5 @@ let () =
   Summer.start ~port:!port (fun req ->
       let+ body = Summer.body req in
       (* let+ body = Lwt.return "" in *)
-      let text = Format.sprintf "%s\n\n%s" (Summer.show_request req) body in
-      Summer.response
-        ~headers:[("content-type", "text/plain; charset=utf-8")]
-        text )
+      let body = Format.sprintf "%s\n\n%s" (Summer.show_request req) body in
+      Summer.text body )
