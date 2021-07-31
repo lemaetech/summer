@@ -123,7 +123,7 @@ val response_bigstring :
   -> response
 (** [response_bigstring] similar to {!type:response} except body is a bigstring. *)
 
-(** {1 Cookies} *)
+(** {2 Cookies} *)
 
 val add_cookie : Http_cookie.t -> response -> response
 (** [add_cookie cookie response] adds [cookie] to [response]. If a [cookie] with
@@ -133,6 +133,11 @@ val add_cookie : Http_cookie.t -> response -> response
 val remove_cookie : string -> response -> response
 (** [remove_cookie cookie_name response] removes cookie with [cookie_name] from
     response if it exists. *)
+
+(** {2 Headers} *)
+
+val add_header : name:string -> string -> response -> response
+val remove_header : string -> response -> response
 
 (** {1 Handler} *)
 

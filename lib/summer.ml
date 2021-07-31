@@ -413,7 +413,7 @@ module Smap = Map.Make (String)
 
 type response =
   { response_code: response_code
-  ; headers: header list
+  ; headers: string Smap.t
   ; cookies: Http_cookie.t Smap.t
   ; body: Cstruct.t }
 
@@ -427,6 +427,7 @@ let response_bigstring ?(response_code = response_code_200) ?(headers = []) body
       List.map
         (fun (name, value) -> (String.lowercase_ascii name, value))
         headers
+      |> List.to_seq |> Smap.of_seq
   ; cookies= Smap.empty
   ; body= Cstruct.of_bigarray body }
 
@@ -447,6 +448,13 @@ let remove_cookie cookie_name response =
   let cookies = Smap.remove cookie_name response.cookies in
   {response with cookies}
 
+let add_header ~name value response =
+  { response with
+    headers= Smap.update name (fun _ -> Some value) response.headers }
+
+let remove_header name response =
+  {response with headers= Smap.remove name response.headers}
+
 module IO_vector = Lwt_unix.IO_vectors
 
 let write_response fd {response_code; headers; body; cookies} =
@@ -461,24 +469,27 @@ let write_response fd {response_code; headers; body; cookies} =
   in
   IO_vector.append_bytes iov status_line 0 (Bytes.length status_line) ;
 
-  (* Append Set-Cookie headers. *)
-  let headers =
-    Smap.to_seq cookies
-    |> Seq.map (fun (_cookie_name, cookie) ->
-           ("set-cookie: %s", Http_cookie.to_cookie_header_value cookie) )
-    |> List.of_seq |> List.append headers
-  in
-
   (* Write response headers. *)
-  let headers =
-    if List.mem_assoc "content-length" headers then headers
-    else ("content-length", Cstruct.length body |> string_of_int) :: headers
-  in
-  List.iter
-    (fun (name, v) ->
-      let buf = Format.sprintf "%s: %s\r\n" name v |> Bytes.unsafe_of_string in
-      IO_vector.append_bytes iov buf 0 (Bytes.length buf) )
-    headers ;
+  ( if Smap.mem "content-length" headers then headers
+  else
+    let len = Cstruct.length body |> string_of_int in
+    Smap.add "content-length" len headers )
+  |> Smap.iter (fun name v ->
+         let buf =
+           Format.sprintf "%s: %s\r\n" name v |> Bytes.unsafe_of_string
+         in
+         IO_vector.append_bytes iov buf 0 (Bytes.length buf) ) ;
+
+  (* Write Set-Cookie headers. *)
+  Smap.iter
+    (fun _ cookie ->
+      let header =
+        Format.sprintf "set-cookie: %s"
+          (Http_cookie.to_cookie_header_value cookie)
+        |> Bytes.unsafe_of_string
+      in
+      IO_vector.append_bytes iov header 0 (Bytes.length header) )
+    cookies ;
 
   (* Write response body. *)
   IO_vector.append_bytes iov (Bytes.unsafe_of_string "\r\n") 0 2 ;
