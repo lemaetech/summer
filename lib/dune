@@ -1,4 +1,11 @@
 (library
  (name summer)
  (public_name summer)
- (libraries cstruct http-multipart-formdata angstrom lwt lwt.unix fmt))
+ (libraries
+  cstruct
+  http-multipart-formdata
+  http-cookie
+  angstrom
+  lwt
+  lwt.unix
+  fmt))

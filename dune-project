@@ -25,13 +25,17 @@
  (depends
   (ocaml
    (>= 4.10.0))
-  cstruct
+  (cstruct
+   (>= 6.0.1))
   (http-multipart-formdata
    (>= 2.0.1))
+  (http-cookie
+   (>= 3.0.0))
   (angstrom
    (>= 0.15.0))
   (fmt
    (>= 0.8.9))
-  lwt
+  (lwt
+   (>= 5.4.1))
   (ppx_expect :with-test)
   (ppx_deriving :with-test)))

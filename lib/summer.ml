@@ -409,10 +409,13 @@ let response_code_200 = response_code 200
 let response_code_500 = response_code 500
 let response_code_400 = response_code 400
 
-module IO_vector = Lwt_unix.IO_vectors
+module Smap = Map.Make (String)
 
 type response =
-  {response_code: response_code; headers: header list; body: Cstruct.t}
+  { response_code: response_code
+  ; headers: header list
+  ; cookies: Http_cookie.t Smap.t
+  ; body: Cstruct.t }
 
 (*-- Handler --*)
 type handler = request -> response Lwt.t
@@ -424,13 +427,29 @@ let response_bigstring ?(response_code = response_code_200) ?(headers = []) body
       List.map
         (fun (name, value) -> (String.lowercase_ascii name, value))
         headers
+  ; cookies= Smap.empty
   ; body= Cstruct.of_bigarray body }
 
 let response ?response_code ?headers body =
   response_bigstring ?response_code ?headers
     (Bigstringaf.of_string body ~off:0 ~len:(String.length body))
 
-let write_response fd {response_code; headers; body} =
+(* Cookies *)
+
+let add_cookie cookie response =
+  { response with
+    cookies=
+      Smap.update (Http_cookie.name cookie)
+        (fun _ -> Some cookie)
+        response.cookies }
+
+let remove_cookie cookie_name response =
+  let cookies = Smap.remove cookie_name response.cookies in
+  {response with cookies}
+
+module IO_vector = Lwt_unix.IO_vectors
+
+let write_response fd {response_code; headers; body; cookies} =
   let iov = IO_vector.create () in
 
   (* Write response status line. *)
@@ -441,6 +460,14 @@ let write_response fd {response_code; headers; body} =
     |> Bytes.unsafe_of_string
   in
   IO_vector.append_bytes iov status_line 0 (Bytes.length status_line) ;
+
+  (* Append Set-Cookie headers. *)
+  let headers =
+    Smap.to_seq cookies
+    |> Seq.map (fun (_cookie_name, cookie) ->
+           ("set-cookie: %s", Http_cookie.to_cookie_header_value cookie) )
+    |> List.of_seq |> List.append headers
+  in
 
   (* Write response headers. *)
   let headers =

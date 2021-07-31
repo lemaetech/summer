@@ -123,6 +123,17 @@ val response_bigstring :
   -> response
 (** [response_bigstring] similar to {!type:response} except body is a bigstring. *)
 
+(** {1 Cookies} *)
+
+val add_cookie : Http_cookie.t -> response -> response
+(** [add_cookie cookie response] adds [cookie] to [response]. If a [cookie] with
+    the same cookie nme already exists in response, it is replaced by the given
+    [cookie]. *)
+
+val remove_cookie : string -> response -> response
+(** [remove_cookie cookie_name response] removes cookie with [cookie_name] from
+    response if it exists. *)
+
 (** {1 Handler} *)
 
 (** ['a handler] represents a connection handler. *)
