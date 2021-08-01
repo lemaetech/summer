@@ -85,9 +85,8 @@ val multipart_all :
 
 val urlencoded_form : request -> (string * string list) list Lwt.t
 (** Returns a list of [name, value list] pairs from form data encoded in
-    [application/x-www-form-urlencoded] format to a list of name, value list
-    pairs. See {{:https://tools.ietf.org/html/rfc1866#section-8.2.1} RFC 1866
-    §8.2.1}. *)
+    [application/x-www-form-urlencoded] format. See
+    {{:https://tools.ietf.org/html/rfc1866#section-8.2.1} RFC 1866 §8.2.1}. *)
 
 (** {2 Cookies} *)
 
