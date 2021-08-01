@@ -165,12 +165,16 @@ val remove_cookie : string -> response -> response
 val add_header : name:string -> string -> response -> response
 val remove_header : string -> response -> response
 
-(** {1 Handler} *)
+(** {1 Handler/Middleware} *)
 
 (** ['a handler] represents a connection handler. *)
 type handler = request -> response Lwt.t
 
-val io_buffer_size : int
+type middleware = handler -> handler
+
+(** {1 Routing} *)
+
+val router : handler Wtr.route list -> handler
 
 val start : port:int -> handler -> unit
 (** [start port request_handler] Starts HTTP/1.1 server at [port]. *)

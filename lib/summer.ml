@@ -24,7 +24,7 @@ let _debug k =
 
 type request =
   { meth: meth
-  ; request_target: string
+  ; target: string
   ; http_version: int * int
   ; content_length: int option
   ; headers: (string * string) list
@@ -58,7 +58,7 @@ exception Request_error of string
 let io_buffer_size = 65536 (* UNIX_BUFFER_SIZE 4.0.0 *)
 
 let meth t = t.meth
-let target t = t.request_target
+let target t = t.target
 let http_version t = t.http_version
 let headers t = t.headers
 let client_addr t = t.client_addr
@@ -67,7 +67,7 @@ let request_header header request = List.assoc_opt header request.headers
 let rec pp_request fmt t =
   let fields =
     [ Fmt.field "meth" (fun p -> p.meth) pp_meth
-    ; Fmt.field "request_target" (fun p -> p.request_target) Fmt.string
+    ; Fmt.field "target" (fun p -> p.target) Fmt.string
     ; Fmt.field "http_version" (fun p -> p.http_version) pp_http_version
     ; Fmt.field "headers" (fun p -> p.headers) pp_headers ]
   in
@@ -222,10 +222,10 @@ let request fd unconsumed client_addr =
   match parse_result with
   | Ok (x, unconsumed) -> (
     match x with
-    | `Request (meth, request_target, http_version, content_length, headers) ->
+    | `Request (meth, target, http_version, content_length, headers) ->
         `Request
           { meth
-          ; request_target
+          ; target
           ; http_version
           ; content_length
           ; headers
@@ -431,6 +431,7 @@ type response =
 
 (*-- Handler --*)
 type handler = request -> response Lwt.t
+type middleware = handler -> handler
 
 let response_bigstring ?(response_code = response_code_200) ?(headers = []) body
     =
@@ -521,6 +522,13 @@ let write_response fd {response_code; headers; body; cookies} =
 
   Lwt_unix.writev fd iov >|= fun _ -> ()
 
+let router routes request =
+  let router = Wtr.create routes in
+  match Wtr.match' router request.target with
+  | Some handler -> handler request
+  | None -> Lwt.return @@ response ~response_code:response_code_400 ""
+
+(* Handle request*)
 let rec handle_requests unconsumed handler client_addr fd =
   _debug (fun k -> k "Waiting for new request ...\n%!") ;
   request fd unconsumed client_addr

@@ -5,6 +5,7 @@
   cstruct
   http-multipart-formdata
   http-cookie
+  wtr
   angstrom
   uri
   lwt

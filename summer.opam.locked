@@ -39,9 +39,9 @@ depends: [
   "mmap" {= "1.1.0"}
   "ocaml" {= "4.12.0"}
   "ocaml-base-compiler" {= "4.12.0"}
-  "ocaml-compiler-libs" {= "v0.12.3" & with-test}
+  "ocaml-compiler-libs" {= "v0.12.3"}
   "ocaml-config" {= "2"}
-  "ocaml-migrate-parsetree" {= "2.2.0" & with-test}
+  "ocaml-migrate-parsetree" {= "2.2.0"}
   "ocaml-options-vanilla" {= "1"}
   "ocaml-syntax-shims" {= "1.0.0"}
   "ocamlbuild" {= "0.14.0"}
@@ -54,7 +54,7 @@ depends: [
   "ppx_base" {= "v0.14.0" & with-test}
   "ppx_cold" {= "v0.14.0" & with-test}
   "ppx_compare" {= "v0.14.0" & with-test}
-  "ppx_derivers" {= "1.2.1" & with-test}
+  "ppx_derivers" {= "1.2.1"}
   "ppx_deriving" {= "5.2.1" & with-test}
   "ppx_enumerate" {= "v0.14.0" & with-test}
   "ppx_expect" {= "v0.14.1" & with-test}
@@ -64,11 +64,11 @@ depends: [
   "ppx_js_style" {= "v0.14.1" & with-test}
   "ppx_optcomp" {= "v0.14.2" & with-test}
   "ppx_sexp_conv" {= "v0.14.3" & with-test}
-  "ppxlib" {= "0.22.2" & with-test}
+  "ppxlib" {= "0.22.2"}
   "re" {= "1.9.0" & with-test}
   "result" {= "1.5"}
   "seq" {= "base"}
-  "sexplib0" {= "v0.14.0" & with-test}
+  "sexplib0" {= "v0.14.0"}
   "stdio" {= "v0.14.0" & with-test}
   "stdlib-shims" {= "0.3.0"}
   "stringext" {= "1.6.0"}
@@ -78,6 +78,7 @@ depends: [
   "uchar" {= "0.0.2" & with-doc}
   "uri" {= "4.2.0"}
   "uutf" {= "1.0.2" & with-doc}
+  "wtr" {= "1.0.0"}
 ]
 build: [
   ["dune" "subst" "--root" "."] {dev}
