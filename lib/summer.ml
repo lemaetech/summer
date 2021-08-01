@@ -345,7 +345,7 @@ let multipart_all request =
   in
   read_parts []
 
-let urlencoded_form request =
+let form request =
   let+ body = body request in
   if body = "" then [] else Uri.query_of_encoded body
 
