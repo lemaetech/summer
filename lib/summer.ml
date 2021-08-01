@@ -344,6 +344,11 @@ let multipart_all request =
   in
   read_parts []
 
+let cookies request =
+  match List.assoc_opt "cookie" request.headers with
+  | Some v -> Http_cookie.of_cookie_header v
+  | None -> []
+
 (* Response *)
 
 type response_code = int * string (* code, reason phrase *)

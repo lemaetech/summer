@@ -47,7 +47,7 @@ val show_request : request -> string
 val body : request -> string Lwt.t
 (** [body request t] returns request body. *)
 
-(** {1 Form} *)
+(** {2 Form} *)
 
 val multipart :
      ?body_buffer_size:int
@@ -75,6 +75,12 @@ val multipart_all :
 (** [multipart_all request] is a non streaming version of {!val:multipart}. It
     returns a list of multipart tuples - (part_header, body) - where each tuple
     represents a multipart part. *)
+
+(** {2 Cookies} *)
+
+val cookies : request -> Http_cookie.t list
+(** [cookies request] returns a list of cookies in [request]. See
+    {:https://tools.ietf.org/html/rfc6265#section-4.2} *)
 
 (** {1 Response} *)
 
