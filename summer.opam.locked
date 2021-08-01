@@ -71,10 +71,12 @@ depends: [
   "sexplib0" {= "v0.14.0" & with-test}
   "stdio" {= "v0.14.0" & with-test}
   "stdlib-shims" {= "0.3.0"}
+  "stringext" {= "1.6.0"}
   "time_now" {= "v0.14.0" & with-test}
   "topkg" {= "1.0.3"}
   "tyxml" {= "4.5.0" & with-doc}
   "uchar" {= "0.0.2" & with-doc}
+  "uri" {= "4.2.0"}
   "uutf" {= "1.0.2" & with-doc}
 ]
 build: [

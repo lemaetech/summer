@@ -19,5 +19,5 @@ let () =
       let+ body =
         Lwt.catch (fun () -> Summer.body req) (fun _exn -> Lwt.return "")
       in
-      let body = Format.sprintf "%s\n\n%s" (Summer.show_request req) body in
+      let body = Format.asprintf "%a\n\n%s" Summer.pp_request req body in
       Summer.text body )

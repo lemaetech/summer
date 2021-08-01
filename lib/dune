@@ -6,6 +6,7 @@
   http-multipart-formdata
   http-cookie
   angstrom
+  uri
   lwt
   lwt.unix
   fmt))

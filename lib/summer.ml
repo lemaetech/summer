@@ -62,6 +62,7 @@ let target t = t.request_target
 let http_version t = t.http_version
 let headers t = t.headers
 let client_addr t = t.client_addr
+let request_header header request = List.assoc_opt header request.headers
 
 let rec pp_request fmt t =
   let fields =
@@ -94,7 +95,7 @@ and pp_headers fmt t =
   let header_field = Fmt.(pair ~sep:colon string string) in
   Fmt.vbox Fmt.(list header_field) fmt t
 
-let show_request t =
+let request_to_string t =
   let buf = Buffer.create 0 in
   let fmt = Format.formatter_of_buffer buf in
   pp_request fmt t ; Format.fprintf fmt "%!" ; Buffer.contents buf
@@ -344,6 +345,12 @@ let multipart_all request =
   in
   read_parts []
 
+let urlencoded_form request =
+  let+ body = body request in
+  if body = "" then [] else Uri.query_of_encoded body
+
+(* Request cookies *)
+
 let cookies request =
   match List.assoc_opt "cookie" request.headers with
   | Some v -> Http_cookie.of_cookie_header v
@@ -519,7 +526,7 @@ let rec handle_requests unconsumed handler client_addr fd =
   request fd unconsumed client_addr
   >>= function
   | `Request req -> (
-      _debug (fun k -> k "%s\n%!" (show_request req)) ;
+      _debug (fun k -> k "%s\n%!" (request_to_string req)) ;
       Lwt.catch
         (fun () ->
           let* response = handler req in

@@ -41,11 +41,18 @@ val http_version : request -> int * int
 val headers : request -> header list
 val client_addr : request -> string
 val content_length : request -> int option
-val pp_request : Format.formatter -> request -> unit
-val show_request : request -> string
+
+val request_header : string -> request -> string option
+(** [request_header header request] returns request header value associated with
+    [header]. *)
 
 val body : request -> string Lwt.t
 (** [body request t] returns request body. *)
+
+(** {2 Pretty printers} *)
+
+val pp_request : Format.formatter -> request -> unit
+val pp_meth : Format.formatter -> meth -> unit
 
 (** {2 Form} *)
 
@@ -75,6 +82,12 @@ val multipart_all :
 (** [multipart_all request] is a non streaming version of {!val:multipart}. It
     returns a list of multipart tuples - (part_header, body) - where each tuple
     represents a multipart part. *)
+
+val urlencoded_form : request -> (string * string list) list Lwt.t
+(** Returns a list of [name, value list] pairs from form data encoded in
+    [application/x-www-form-urlencoded] format to a list of name, value list
+    pairs. See {{:https://tools.ietf.org/html/rfc1866#section-8.2.1} RFC 1866
+    §8.2.1}. *)
 
 (** {2 Cookies} *)
 
