@@ -172,9 +172,9 @@ type handler = request -> response Lwt.t
 
 type middleware = handler -> handler
 
-(** {1 Routing} *)
+(** {2 Routing} *)
 
-val router : handler Wtr.route list -> handler
+val router : handler Wtr.route list -> middleware
 
 val start : port:int -> handler -> unit
 (** [start port request_handler] Starts HTTP/1.1 server at [port]. *)

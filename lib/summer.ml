@@ -522,11 +522,13 @@ let write_response fd {response_code; headers; body; cookies} =
 
   Lwt_unix.writev fd iov >|= fun _ -> ()
 
-let router routes request =
+(* Routing *)
+let router routes =
   let router = Wtr.create routes in
-  match Wtr.match' router request.target with
-  | Some handler -> handler request
-  | None -> Lwt.return @@ response ~response_code:response_code_400 ""
+  fun next_handler request ->
+    match Wtr.match' router request.target with
+    | Some handler -> handler request
+    | None -> next_handler request
 
 (* Handle request*)
 let rec handle_requests unconsumed handler client_addr fd =
