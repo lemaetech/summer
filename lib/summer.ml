@@ -55,9 +55,11 @@ and header = string * string
 
 exception Request_error of string
 
+(* Method *)
+let meth t = t.meth
+let meth_equal (m1 : meth) (m2 : meth) = compare m1 m2 = 0
 let io_buffer_size = 65536 (* UNIX_BUFFER_SIZE 4.0.0 *)
 
-let meth t = t.meth
 let target t = t.target
 let http_version t = t.http_version
 let headers t = t.headers
@@ -529,6 +531,8 @@ let router routes =
     match Wtr.match' router request.target with
     | Some handler -> handler request
     | None -> next_handler request
+
+(* let get uri handler = *)
 
 (* Handle request*)
 let rec handle_requests unconsumed handler client_addr fd =

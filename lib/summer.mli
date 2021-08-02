@@ -20,6 +20,8 @@
 (** [request] represents a HTTP/1.1 request *)
 type request
 
+(** {2 Request Method} *)
+
 (** [meth] represents request methods. *)
 type meth =
   [ `GET
@@ -31,6 +33,9 @@ type meth =
   | `OPTIONS
   | `TRACE
   | `Method of string ]
+
+val meth_equal : meth -> meth -> bool
+val pp_meth : Format.formatter -> meth -> unit
 
 (** [header] represents a HTTP header, a tuple of (name * value) *)
 type header = string * string
@@ -52,7 +57,6 @@ val body : request -> string Lwt.t
 (** {2 Pretty printers} *)
 
 val pp_request : Format.formatter -> request -> unit
-val pp_meth : Format.formatter -> meth -> unit
 
 (** {2 Form} *)
 
@@ -175,6 +179,7 @@ type middleware = handler -> handler
 (** {2 Routing} *)
 
 val router : handler Wtr.route list -> middleware
+(* val get : ('a, handler) Wtr.uri -> handler -> handler Wtr.route *)
 
 val start : port:int -> handler -> unit
 (** [start port request_handler] Starts HTTP/1.1 server at [port]. *)
