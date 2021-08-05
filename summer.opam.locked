@@ -35,7 +35,7 @@ depends: [
   "jane-street-headers" {= "v0.14.0" & with-test}
   "jst-config" {= "v0.14.0" & with-test}
   "logs" {= "0.7.0" & with-doc}
-  "lwt" {= "5.4.1"}
+  "lwt" {= "5.4.2"}
   "mmap" {= "1.1.0"}
   "ocaml" {= "4.12.0"}
   "ocaml-base-compiler" {= "4.12.0"}
@@ -78,7 +78,7 @@ depends: [
   "uchar" {= "0.0.2" & with-doc}
   "uri" {= "4.2.0"}
   "uutf" {= "1.0.2" & with-doc}
-  "wtr" {= "1.0.0"}
+  "wtr" {= "2.0.0"}
 ]
 build: [
   ["dune" "subst" "--root" "."] {dev}
@@ -98,3 +98,4 @@ build: [
   ["dune" "install" "-p" name "--create-install-files" name]
 ]
 dev-repo: "git+https://github.com/lemaetech/summer.git"
+pin-depends: ["wtr.2.0.0" "git+ssh://git@github.com/lemaetech/wtr.git#main"]

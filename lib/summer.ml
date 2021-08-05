@@ -23,7 +23,7 @@ let _debug k =
         Printf.kfprintf (fun oc -> Printf.fprintf oc "\n%!") stdout fmt )
 
 type request =
-  { meth: meth
+  { method': method'
   ; target: string
   ; http_version: int * int
   ; content_length: int option
@@ -39,27 +39,17 @@ type request =
   ; mutable multipart_reader: Http_multipart_formdata.reader option }
 
 (* https://datatracker.ietf.org/doc/html/rfc7231#section-4 *)
-and meth =
-  [ `GET
-  | `HEAD
-  | `POST
-  | `PUT
-  | `DELETE
-  | `CONNECT
-  | `OPTIONS
-  | `TRACE
-  | `Method of string ]
+and method' = Wtr.method'
 
 and header = string * string
 (* (name,value) *)
 
 exception Request_error of string
 
-(* Method *)
-let meth t = t.meth
-let meth_equal (m1 : meth) (m2 : meth) = compare m1 m2 = 0
 let io_buffer_size = 65536 (* UNIX_BUFFER_SIZE 4.0.0 *)
 
+let method' t = t.method'
+let method_equal = Wtr.method_equal
 let target t = t.target
 let http_version t = t.http_version
 let headers t = t.headers
@@ -68,7 +58,7 @@ let request_header header request = List.assoc_opt header request.headers
 
 let rec pp_request fmt t =
   let fields =
-    [ Fmt.field "meth" (fun p -> p.meth) pp_meth
+    [ Fmt.field "meth" (fun p -> p.method') pp_method
     ; Fmt.field "target" (fun p -> p.target) Fmt.string
     ; Fmt.field "http_version" (fun p -> p.http_version) pp_http_version
     ; Fmt.field "headers" (fun p -> p.headers) pp_headers ]
@@ -79,18 +69,7 @@ and pp_http_version fmt t =
   let comma' fmt _ = Fmt.string fmt "," in
   Fmt.(pair ~sep:comma' int int) fmt t
 
-and pp_meth fmt t =
-  ( match t with
-  | `GET -> "GET"
-  | `HEAD -> "HEAD"
-  | `POST -> "POST"
-  | `PUT -> "PUT"
-  | `DELETE -> "DELETE"
-  | `CONNECT -> "CONNECT"
-  | `OPTIONS -> "OPTIONS"
-  | `TRACE -> "TRACE"
-  | `Method s -> Format.sprintf "Method (%s)" s )
-  |> Format.fprintf fmt "%s"
+and pp_method = Wtr.pp_method
 
 and pp_headers fmt t =
   let colon fmt _ = Fmt.string fmt ": " in
@@ -103,19 +82,6 @@ let request_to_string t =
   pp_request fmt t ; Format.fprintf fmt "%!" ; Buffer.contents buf
 
 let content_length request = request.content_length
-
-let method_ meth =
-  String.uppercase_ascii meth
-  |> function
-  | "GET" -> `GET
-  | "HEAD" -> `HEAD
-  | "POST" -> `POST
-  | "PUT" -> `PUT
-  | "DELETE" -> `DELETE
-  | "CONNECT" -> `CONNECT
-  | "OPTIONS" -> `OPTIONS
-  | "TRACE" -> `TRACE
-  | header -> `Method header
 
 (*-- https://datatracker.ietf.org/doc/html/rfc7230#appendix-B --*)
 
@@ -158,7 +124,7 @@ let header_fields =
 
 (*-- request-line = method SP request-target SP HTTP-version CRLF -- *)
 let request_line =
-  let* meth = token >>| method_ <* space in
+  let* meth = token >>| Wtr.method' <* space in
   let* request_target = take_while1 (fun c -> c != ' ') <* space in
   let digit = satisfy (function '0' .. '9' -> true | _ -> false) in
   let* http_version =
@@ -224,9 +190,9 @@ let request fd unconsumed client_addr =
   match parse_result with
   | Ok (x, unconsumed) -> (
     match x with
-    | `Request (meth, target, http_version, content_length, headers) ->
+    | `Request (method', target, http_version, content_length, headers) ->
         `Request
-          { meth
+          { method'
           ; target
           ; http_version
           ; content_length
@@ -525,12 +491,10 @@ let write_response fd {response_code; headers; body; cookies} =
   Lwt_unix.writev fd iov >|= fun _ -> ()
 
 (* Routing *)
-let router routes =
-  let router = Wtr.create routes in
-  fun next_handler request ->
-    match Wtr.match' router request.target with
-    | Some handler -> handler request
-    | None -> next_handler request
+let router router next_handler request =
+  match Wtr.match' request.method' request.target router with
+  | Some handler -> handler request
+  | None -> next_handler request
 
 (* let get uri handler = *)
 

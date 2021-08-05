@@ -23,7 +23,7 @@ type request
 (** {2 Request Method} *)
 
 (** [meth] represents request methods. *)
-type meth =
+type method' =
   [ `GET
   | `HEAD
   | `POST
@@ -34,13 +34,12 @@ type meth =
   | `TRACE
   | `Method of string ]
 
-val meth_equal : meth -> meth -> bool
-val pp_meth : Format.formatter -> meth -> unit
+val method_equal : method' -> method' -> bool
 
 (** [header] represents a HTTP header, a tuple of (name * value) *)
 type header = string * string
 
-val meth : request -> meth
+val method' : request -> method'
 val target : request -> string
 val http_version : request -> int * int
 val headers : request -> header list
@@ -57,6 +56,7 @@ val body : request -> string Lwt.t
 (** {2 Pretty printers} *)
 
 val pp_request : Format.formatter -> request -> unit
+val pp_method : Format.formatter -> method' -> unit
 
 (** {2 Form} *)
 
@@ -178,7 +178,7 @@ type middleware = handler -> handler
 
 (** {2 Routing} *)
 
-val router : handler Wtr.route list -> middleware
+val router : handler Wtr.t -> middleware
 (* val get : ('a, handler) Wtr.uri -> handler -> handler Wtr.route *)
 
 val start : port:int -> handler -> unit
