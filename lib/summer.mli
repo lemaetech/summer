@@ -20,10 +20,8 @@
 (** [request] represents a HTTP/1.1 request *)
 type request
 
-(** {2 Request Method} *)
-
-(** [meth] represents request methods. *)
-type method' =
+(** [method'] represents request methods. *)
+and method' =
   [ `GET
   | `HEAD
   | `POST
@@ -34,11 +32,10 @@ type method' =
   | `TRACE
   | `Method of string ]
 
-val method_equal : method' -> method' -> bool
-
 (** [header] represents a HTTP header, a tuple of (name * value) *)
-type header = string * string
+and header = string * string
 
+val method_equal : method' -> method' -> bool
 val method' : request -> method'
 val target : request -> string
 val http_version : request -> int * int
@@ -61,7 +58,7 @@ val request_header : string -> request -> string option
 val body : request -> string Lwt.t
 (** [body request t] returns request body. *)
 
-(** {2 Pretty printers} *)
+(** {1 Pretty printers} *)
 
 val pp_request : Format.formatter -> request -> unit
 val pp_method : Format.formatter -> method' -> unit
