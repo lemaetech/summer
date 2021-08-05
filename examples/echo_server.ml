@@ -16,7 +16,7 @@ let echo_handler req =
   let+ body =
     Lwt.catch (fun () -> Summer.body req) (fun _exn -> Lwt.return "")
   in
-  let body = Format.asprintf "%a\n\n%s" Summer.pp_request req body in
+  let body = Format.asprintf "%a@.@.%s" Summer.pp_request req body in
   Summer.text body
 
 let router =
