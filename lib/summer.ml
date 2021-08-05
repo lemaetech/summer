@@ -313,9 +313,15 @@ let multipart_all request =
   in
   read_parts []
 
-let form request =
-  let+ body = body request in
-  if body = "" then [] else Uri.query_of_encoded body
+let form_urlencoded request =
+  match
+    ( method_equal `POST request.method'
+    , List.assoc_opt "content-type" request.headers )
+  with
+  | true, Some "application/x-www-form-urlencoded" ->
+      let+ body = body request in
+      if body = "" then [] else Uri.query_of_encoded body
+  | _, Some _ | _, None -> Lwt.return []
 
 (* Request cookies *)
 
@@ -495,8 +501,6 @@ let router router next_handler request =
   match Wtr.match' request.method' request.target router with
   | Some handler -> handler request
   | None -> next_handler request
-
-(* let get uri handler = *)
 
 (* Handle request*)
 let rec handle_requests unconsumed handler client_addr fd =

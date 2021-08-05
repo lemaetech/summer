@@ -87,7 +87,7 @@ val multipart_all :
     returns a list of multipart tuples - (part_header, body) - where each tuple
     represents a multipart part. *)
 
-val form : request -> (string * string list) list Lwt.t
+val form_urlencoded : request -> (string * string list) list Lwt.t
 (** Returns a list of [name, value list] pairs from form data encoded in
     [application/x-www-form-urlencoded] format. See
     {{:https://tools.ietf.org/html/rfc1866#section-8.2.1} RFC 1866 §8.2.1}. *)
