@@ -21,8 +21,8 @@ let echo_handler req =
 
 let router =
   Wtr.create
-    [ {%wtr| get; /about    |} about_handler
-    ; {%wtr| get; /echo     |} echo_handler ]
+    [ {%wtr| get     ; /about    |} about_handler
+    ; {%wtr| get,post; /echo     |} echo_handler ]
 
 let app = Summer.router router @@ Summer.not_found
 
