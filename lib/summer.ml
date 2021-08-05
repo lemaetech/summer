@@ -314,14 +314,11 @@ let multipart_all request =
   read_parts []
 
 let form_urlencoded request =
-  match
-    ( method_equal `POST request.method'
-    , List.assoc_opt "content-type" request.headers )
-  with
-  | true, Some "application/x-www-form-urlencoded" ->
+  match List.assoc_opt "content-type" request.headers with
+  | Some "application/x-www-form-urlencoded" ->
       let+ body = body request in
       if body = "" then [] else Uri.query_of_encoded body
-  | _, Some _ | _, None -> Lwt.return []
+  | Some _ | None -> Lwt.return []
 
 (* Request cookies *)
 
