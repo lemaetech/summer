@@ -395,9 +395,9 @@ let response_code ?(reason_phrase = "unknown") = function
 
 let response_code_int : response_code -> int = fun (code, _) -> code
 let response_code_reason_phrase (_, phrase) = phrase
-let response_code_200 = response_code 200
-let response_code_500 = response_code 500
-let response_code_400 = response_code 400
+let ok = response_code 200
+let internal_server_error = response_code 500
+let bad_request = response_code 400
 
 module Smap = Map.Make (String)
 
@@ -411,8 +411,7 @@ type response =
 type handler = request -> response Lwt.t
 type middleware = handler -> handler
 
-let response_bigstring ?(response_code = response_code_200) ?(headers = []) body
-    =
+let response_bigstring ?(response_code = ok) ?(headers = []) body =
   { response_code
   ; headers=
       List.map
@@ -427,14 +426,16 @@ let response ?response_code ?headers body =
     (Bigstringaf.of_string body ~off:0 ~len:(String.length body))
 
 let text body =
-  response ~response_code:response_code_200
+  response ~response_code:ok
     ~headers:[("content-type", "text/plain; charset=UTF-8")]
     body
 
 let html body =
-  response ~response_code:response_code_200
+  response ~response_code:ok
     ~headers:[("content-type", "text/html; charset=UTF-8")]
     body
+
+let not_found _ = Lwt.return @@ response ~response_code:(response_code 404) ""
 
 (* Cookies *)
 
@@ -530,11 +531,11 @@ let rec handle_requests unconsumed handler client_addr fd =
           ( match exn with
           | Request_error error ->
               _debug (fun k -> k "Request error: %s" error) ;
-              write_response fd (response ~response_code:response_code_400 "")
+              write_response fd (response ~response_code:bad_request "")
           | exn ->
               _debug (fun k -> k "Exception: %s" (Printexc.to_string exn)) ;
-              write_response fd (response ~response_code:response_code_500 "")
-          )
+              write_response fd
+                (response ~response_code:internal_server_error "") )
           >|= fun () -> `Close_connection )
       >>= function
       | `Close_connection -> Lwt_unix.close fd
@@ -545,7 +546,7 @@ let rec handle_requests unconsumed handler client_addr fd =
   | `Error e ->
       _debug (fun k ->
           k "Error while parsing request: %s\nClosing connection" e ) ;
-      write_response fd (response ~response_code:response_code_400 "")
+      write_response fd (response ~response_code:bad_request "")
       >>= fun () -> Lwt_unix.close fd
 
 let start ~port request_handler =

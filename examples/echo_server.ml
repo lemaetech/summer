@@ -10,14 +10,26 @@
 
 open Lwt.Syntax
 
+let about_handler _req = Lwt.return (Summer.text "about page")
+
+let echo_handler req =
+  let+ body =
+    Lwt.catch (fun () -> Summer.body req) (fun _exn -> Lwt.return "")
+  in
+  let body = Format.asprintf "%a\n\n%s" Summer.pp_request req body in
+  Summer.text body
+
+let router =
+  Wtr.create
+    [ {%wtr| get; /about    |} about_handler
+    ; {%wtr| get; /echo     |} echo_handler ]
+
+let app = Summer.router router @@ Summer.not_found
+
 let () =
   let port = ref 3000 in
+
   Arg.parse
     [("-p", Arg.Set_int port, " Listening port number (3000 by default)")]
     ignore "An echo HTTP server using summer!" ;
-  Summer.start ~port:!port (fun req ->
-      let+ body =
-        Lwt.catch (fun () -> Summer.body req) (fun _exn -> Lwt.return "")
-      in
-      let body = Format.asprintf "%a\n\n%s" Summer.pp_request req body in
-      Summer.text body )
+  Summer.start ~port:!port app

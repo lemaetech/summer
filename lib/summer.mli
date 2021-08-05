@@ -110,13 +110,13 @@ type response
     details on http response codes *)
 type response_code
 
-val response_code_200 : response_code
+val ok : response_code
 (** HTTP 200 response code *)
 
-val response_code_500 : response_code
+val internal_server_error : response_code
 (** HTTP 500 (Internal Server Error) response code *)
 
-val response_code_400 : response_code
+val bad_request : response_code
 (** HTTP 400 Bad Request response code *)
 
 val response_code : ?reason_phrase:string -> int -> response_code
@@ -179,6 +179,8 @@ val remove_header : string -> response -> response
 type handler = request -> response Lwt.t
 
 type middleware = handler -> handler
+
+val not_found : handler
 
 (** {2 Routing} *)
 

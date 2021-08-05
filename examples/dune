@@ -1,4 +1,6 @@
 (executable
  (name echo_server)
  (modules echo_server)
- (libraries summer lwt))
+ (libraries summer lwt wtr)
+ (preprocess
+  (pps wtr.ppx)))
