@@ -8,16 +8,14 @@
  * %%NAME%% %%VERSION%%
  *-------------------------------------------------------------------------*)
 
-open Lwt.Syntax
+open Lwt.Infix
 
 let about_handler _req = Lwt.return (Summer.text "about page")
 
 let echo_handler req =
-  let+ body =
-    Lwt.catch (fun () -> Summer.body req) (fun _exn -> Lwt.return "")
-  in
-  let body = Format.asprintf "%a@.@.%s" Summer.pp_request req body in
-  Summer.text body
+  Lwt.catch (fun () -> Summer.body req) (fun _exn -> Lwt.return "")
+  >|= fun body ->
+  Format.asprintf "%a@.@.%s" Summer.pp_request req body |> Summer.text
 
 let router =
   Wtr.create
