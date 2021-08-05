@@ -30,6 +30,7 @@ type request =
   ; headers: (string * string) list
   ; client_addr: string (* IP address of client. *)
   ; fd: Lwt_unix.file_descr
+  ; cookies: Http_cookie.t list Lazy.t
   ; (* unconsumed - bytes remaining after request is processed *)
     mutable unconsumed: Cstruct.t
   ; (* body_read - denotes if the request body has been read or not. This is used
@@ -48,12 +49,20 @@ exception Request_error of string
 
 let io_buffer_size = 65536 (* UNIX_BUFFER_SIZE 4.0.0 *)
 
-let method' t = t.method'
+let method' request = request.method'
 let method_equal = Wtr.method_equal
-let target t = t.target
-let http_version t = t.http_version
-let headers t = t.headers
-let client_addr t = t.client_addr
+let target request = request.target
+let http_version request = request.http_version
+let headers request = request.headers
+let client_addr request = request.client_addr
+let content_length request = request.content_length
+let cookies request = Lazy.force request.cookies
+
+let find_cookie cookie_name request =
+  List.find_opt
+    (fun cookie -> String.equal (Http_cookie.name cookie) cookie_name)
+    (cookies request)
+
 let request_header header request = List.assoc_opt header request.headers
 
 let rec pp_request fmt t =
@@ -80,8 +89,6 @@ let request_to_string t =
   let buf = Buffer.create 0 in
   let fmt = Format.formatter_of_buffer buf in
   pp_request fmt t ; Format.fprintf fmt "%!" ; Buffer.contents buf
-
-let content_length request = request.content_length
 
 (*-- https://datatracker.ietf.org/doc/html/rfc7230#appendix-B --*)
 
@@ -191,12 +198,19 @@ let request fd unconsumed client_addr =
   | Ok (x, unconsumed) -> (
     match x with
     | `Request (method', target, http_version, content_length, headers) ->
+        let cookies =
+          Lazy.from_fun (fun () ->
+              match List.assoc_opt "cookie" headers with
+              | Some v -> Http_cookie.of_cookie_header v
+              | None -> [] )
+        in
         `Request
           { method'
           ; target
           ; http_version
           ; content_length
           ; headers
+          ; cookies
           ; client_addr= socketaddr_to_string client_addr
           ; fd
           ; body_read= false
@@ -319,13 +333,6 @@ let form_urlencoded request =
       let+ body = body request in
       if body = "" then [] else Uri.query_of_encoded body
   | Some _ | None -> Lwt.return []
-
-(* Request cookies *)
-
-let cookies request =
-  match List.assoc_opt "cookie" request.headers with
-  | Some v -> Http_cookie.of_cookie_header v
-  | None -> []
 
 (* Response *)
 
