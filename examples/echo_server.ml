@@ -31,7 +31,6 @@ let app = Summer.router router @@ Summer.not_found
 
 let () =
   let port = ref 3000 in
-
   Arg.parse
     [("-p", Arg.Set_int port, " Listening port number (3000 by default)")]
     ignore "An echo HTTP server using summer!" ;
