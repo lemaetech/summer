@@ -435,6 +435,12 @@ let html body =
     ~headers:[("content-type", "text/html; charset=UTF-8")]
     body
 
+let tyxml doc =
+  let buf = Buffer.create 0 in
+  let fmt = Format.formatter_of_buffer buf in
+  Format.fprintf fmt "%a@." (Tyxml.Html.pp ~indent:true ()) doc ;
+  html (Buffer.contents buf)
+
 let not_found _ = Lwt.return @@ response ~response_code:(response_code 404) ""
 
 (* Cookies *)

@@ -154,6 +154,8 @@ val html : string -> response
 (** [text body] creates a response with HTTP status 200 and content-type of
     ["text/html; charset=UTF-8"]. *)
 
+val tyxml : Tyxml.Html.doc -> response
+
 (** {2 Cookies} *)
 
 val add_cookie : Http_cookie.t -> response -> response

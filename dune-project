@@ -27,6 +27,8 @@
    (>= 4.10.0))
   (cstruct
    (>= 6.0.1))
+  (tyxml
+   (>= 4.5.0))
   (http-multipart-formdata
    (>= 2.0.1))
   (http-cookie
