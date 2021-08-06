@@ -12,12 +12,10 @@ open Lwt.Infix
 open Tyxml.Html
 
 let about_handler _req =
-  let page =
-    html
-      (head (title (txt "Summer: Echo App")) [])
-      (body [div [txt "About page"]])
-  in
-  Lwt.return (Summer.tyxml page)
+  html
+    (head (title (txt "Summer: Echo App")) [])
+    (body [div [txt "About page"]])
+  |> Summer.tyxml |> Lwt.return
 
 let echo_handler req =
   Lwt.catch (fun () -> Summer.body req) (fun _exn -> Lwt.return "")
