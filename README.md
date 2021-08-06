@@ -10,3 +10,5 @@ Here's what I am working on now
 
 Because summers are nice. :)
 
+# Credits
+1. Type `handler` and `middleware` are inspired by the [Dream](https://github.com/aantron/dream)
