@@ -97,8 +97,6 @@ val form_urlencoded : request -> (string * string list) list Lwt.t
     [application/x-www-form-urlencoded] format. See
     {{:https://tools.ietf.org/html/rfc1866#section-8.2.1} RFC 1866 §8.2.1}. *)
 
-(** {2 Cookies} *)
-
 (** {1 Response} *)
 
 type response
