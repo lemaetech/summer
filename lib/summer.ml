@@ -254,7 +254,7 @@ let body request =
 
 (* Form *)
 
-let multipart ?(body_buffer_size = io_buffer_size) request =
+let form_multipart ?(body_buffer_size = io_buffer_size) request =
   let body_buffer_size =
     if body_buffer_size > io_buffer_size then io_buffer_size
     else body_buffer_size
@@ -307,9 +307,9 @@ let multipart ?(body_buffer_size = io_buffer_size) request =
       request.multipart_reader <- Some reader ;
       parse_part (Http_multipart_formdata.read reader)
 
-let multipart_all request =
+let form_multipart_all request =
   let rec read_parts parts =
-    multipart request
+    form_multipart request
     >>= function
     | `End -> Lwt.return (List.rev parts)
     | `Header header ->
@@ -318,7 +318,7 @@ let multipart_all request =
     | `Error e -> raise (Request_error e)
     | _ -> assert false
   and read_body body =
-    multipart request
+    form_multipart request
     >>= function
     | `Body_end -> Lwt.return body
     | `Body buf -> read_body (Cstruct.append body buf)
