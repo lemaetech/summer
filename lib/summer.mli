@@ -35,6 +35,17 @@ and method' =
 (** [header] represents a HTTP header, a tuple of (name * value) *)
 and header = string * string
 
+(** ['a handler] represents a connection handler. *)
+and handler = request -> response Lwt.t
+
+and middleware = handler -> handler
+
+and response
+
+(** See {{:https://tools.ietf.org/html/rfc7231#section-6} RFC7231§6} for more
+    details on http response codes *)
+and response_code
+
 val method_equal : method' -> method' -> bool
 val method' : request -> method'
 val target : request -> string
@@ -99,12 +110,6 @@ val form_urlencoded : request -> (string * string list) list Lwt.t
 
 (** {1 Response} *)
 
-type response
-
-(** See {{:https://tools.ietf.org/html/rfc7231#section-6} RFC7231§6} for more
-    details on http response codes *)
-type response_code
-
 val ok : response_code
 (** HTTP 200 response code *)
 
@@ -124,11 +129,11 @@ val response_code : ?reason_phrase:string -> int -> response_code
     See {{:https://tools.ietf.org/html/rfc7231#section-6} RFC7231§6} for valid
     response codes. *)
 
-val response_code_int : response_code -> int
+val code_int : response_code -> int
 (** [response_code_int response_code] returns an integer representation of
     [response_code]. *)
 
-val response_code_reason_phrase : response_code -> string
+val code_reason_phrase : response_code -> string
 (** [response_code_reason_phrase response_code] returns reason phrase for
     [response_code]. *)
 
@@ -165,21 +170,20 @@ val remove_cookie : string -> response -> response
 (** [remove_cookie cookie_name response] removes cookie with [cookie_name] from
     response if it exists. *)
 
+val not_found : handler
+
 (** {2 Headers} *)
 
 val add_header : name:string -> string -> response -> response
 val remove_header : string -> response -> response
 
-(** {1 Handler/Middleware} *)
+(** {1 Session} *)
 
-(** ['a handler] represents a connection handler. *)
-type handler = request -> response Lwt.t
+val session_put : key:string -> string -> request -> unit Lwt.t
+val session_find : string -> request -> string option
+val session_all : request -> (string * string) list
 
-type middleware = handler -> handler
-
-val not_found : handler
-
-(** {2 Routing} *)
+(** {1 Routing} *)
 
 val router : handler Wtr.t -> middleware
 (* val get : ('a, handler) Wtr.uri -> handler -> handler Wtr.route *)
