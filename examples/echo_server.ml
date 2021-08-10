@@ -17,15 +17,16 @@ let about_handler _req =
     (body [div [txt "About page"]])
   |> Summer.tyxml |> Lwt.return
 
-let echo_handler req =
+let echo_handler name req =
   Lwt.catch (fun () -> Summer.body req) (fun _exn -> Lwt.return "")
   >|= fun body ->
-  Format.asprintf "%a@.@.%s" Summer.pp_request req body |> Summer.text
+  Format.asprintf "Hello %s!\n\n%a@.@.%s" name Summer.pp_request req body
+  |> Summer.text
 
 let router =
   Wtr.create
     [ {%wtr| get     ; /about    |} about_handler
-    ; {%wtr| get,post; /echo     |} echo_handler ]
+    ; {%wtr| get,post; /echo/*   |} echo_handler ]
 
 let app = Summer.router router @@ Summer.not_found
 
