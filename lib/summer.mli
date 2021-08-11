@@ -210,7 +210,6 @@ val in_memory : memory_session -> middleware
 (** {1 Routing} *)
 
 val router : handler Wtr.t -> middleware
-(* val get : ('a, handler) Wtr.uri -> handler -> handler Wtr.route *)
 
 val start : port:int -> handler -> unit
 (** [start port request_handler] Starts HTTP/1.1 server at [port]. *)
