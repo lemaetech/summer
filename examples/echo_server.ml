@@ -20,7 +20,7 @@ let about_handler _req =
 let echo_handler name req =
   Lwt.catch (fun () -> Summer.body req) (fun _exn -> Lwt.return "")
   >|= fun body ->
-  Format.asprintf "Hello %s!\n\n%a@.@.%s" name Summer.pp_request req body
+  Format.asprintf "Hello %s!@.@.%a@.@.%s" name Summer.pp_request req body
   |> Summer.text
 
 let router =
@@ -28,7 +28,9 @@ let router =
     [ {%wtr| get     ; /about    |} about_handler
     ; {%wtr| get,post; /echo/*   |} echo_handler ]
 
-let app = Summer.router router @@ Summer.not_found
+let app =
+  let session = Summer.memory_session () in
+  Summer.in_memory session @@ Summer.router router @@ Summer.not_found
 
 let () =
   let port = ref 3000 in

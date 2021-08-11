@@ -71,7 +71,9 @@ and handler = request -> response Lwt.t
 and middleware = handler -> handler
 
 and memory_session =
-  { mutable cookie: Http_cookie.t
+  { cookie_name: string
+  ; create_cookie: string -> Http_cookie.t
+        (* creates a session cookie given value. *)
   ; sessions: (session_id, session_items) Hashtbl.t }
 
 exception Request_error of string
@@ -505,11 +507,11 @@ let session_all request =
 
 let memory_session ?expires ?max_age
     ?(cookie_name = default_session_cookie_name) () =
-  let cookie =
+  let create_cookie value =
     Http_cookie.create ?expires ?max_age ~path:"/" ~domain:"" ~http_only:true
-      ~same_site:Http_cookie.Same_site.Strict cookie_name ~value:""
+      ~same_site:Http_cookie.Same_site.Strict cookie_name ~value
   in
-  {cookie; sessions= Hashtbl.create 0}
+  {create_cookie; sessions= Hashtbl.create 0; cookie_name}
 
 let in_memory ms next_handler request =
   let save session_id items =
@@ -517,8 +519,7 @@ let in_memory ms next_handler request =
     Lwt.return_unit
   in
   let request =
-    let cookie_name = Http_cookie.name ms.cookie in
-    match find_cookie cookie_name request with
+    match find_cookie ms.cookie_name request with
     | Some session_cookie ->
         let session_id = Http_cookie.value session_cookie in
         let request' =
@@ -545,7 +546,7 @@ let in_memory ms next_handler request =
   | Some session -> (
     match session.id with
     | Some session_id ->
-        let cookie = Http_cookie.update_value session_id ms.cookie in
+        let cookie = ms.create_cookie session_id in
         add_cookie cookie response
     | None -> response )
   | None -> response
