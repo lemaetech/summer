@@ -5,10 +5,14 @@
   cstruct
   http-multipart-formdata
   http-cookie
+  session
   wtr
   tyxml
   angstrom
   uri
   lwt
   lwt.unix
-  fmt))
+  fmt
+  base64
+  mirage-crypto
+  mirage-crypto-rng.unix))

@@ -8,26 +8,51 @@
  * %%NAME%% %%VERSION%%
  *-------------------------------------------------------------------------*)
 
-open Lwt.Infix
+open Lwt.Syntax
 open Tyxml.Html
 
-let about_handler _req =
+let about _req =
   html
     (head (title (txt "Summer: Echo App")) [])
     (body [div [txt "About page"]])
   |> Summer.tyxml |> Lwt.return
 
-let echo_handler req =
-  Lwt.catch (fun () -> Summer.body req) (fun _exn -> Lwt.return "")
-  >|= fun body ->
+let echo req =
+  let+ body =
+    Lwt.catch (fun () -> Summer.body req) (fun _exn -> Lwt.return "")
+  in
   Format.asprintf "%a@.@.%s" Summer.pp_request req body |> Summer.text
+
+let say_hello name _req =
+  html
+    (head (title (txt "Summer: Echo App")) [])
+    (body [div [txt ("Hello " ^ name ^ "!")]])
+  |> Summer.tyxml |> Lwt.return
+
+let counter : Summer.handler =
+ fun req ->
+  let key = "counter" in
+  let counter =
+    match Summer.session_find key req with
+    | Some v -> 1 + int_of_string v
+    | None -> 0
+  in
+  let* () = Summer.session_put ~key (string_of_int counter) req in
+  html
+    (head (title (txt "Summer: Echo App")) [])
+    (body [div [txt ("Hello " ^ string_of_int counter ^ "!")]])
+  |> Summer.tyxml |> Lwt.return
 
 let router =
   Wtr.create
-    [ {%wtr| get     ; /about    |} about_handler
-    ; {%wtr| get,post; /echo     |} echo_handler ]
+    [ {%wtr| get     ; /about               |} about
+    ; {%wtr| get,post; /echo                |} echo
+    ; {%wtr| get     ; /say_hello/:string   |} say_hello
+    ; {%wtr| get     ; /counter             |} counter ]
 
-let app = Summer.router router @@ Summer.not_found
+let app =
+  let session = Summer.memory_session () in
+  Summer.in_memory session @@ Summer.router router @@ Summer.not_found
 
 let () =
   let port = ref 3000 in

@@ -28,15 +28,20 @@ depends: [
   "cstruct" {= "6.0.1"}
   "dune" {= "2.9.0"}
   "dune-configurator" {= "2.9.0"}
+  "duration" {= "0.2.0"}
+  "eqaf" {= "0.8"}
   "fmt" {= "0.8.9"}
   "fpath" {= "0.7.3" & with-doc}
-  "http-cookie" {= "3.0.0"}
+  "http-cookie" {= "3.1.0"}
   "http-multipart-formdata" {= "3.0.1"}
   "jane-street-headers" {= "v0.14.0" & with-test}
   "jst-config" {= "v0.14.0" & with-test}
-  "logs" {= "0.7.0" & with-doc}
+  "logs" {= "0.7.0"}
   "lwt" {= "5.4.2"}
+  "mirage-crypto" {= "0.10.3"}
+  "mirage-crypto-rng" {= "0.10.3"}
   "mmap" {= "1.1.0"}
+  "mtime" {= "1.2.0"}
   "ocaml" {= "4.12.0"}
   "ocaml-base-compiler" {= "4.12.0"}
   "ocaml-compiler-libs" {= "v0.12.3"}
@@ -98,4 +103,6 @@ build: [
   ["dune" "install" "-p" name "--create-install-files" name]
 ]
 dev-repo: "git+https://github.com/lemaetech/summer.git"
-pin-depends: ["wtr.2.0.0" "git+ssh://git@github.com/lemaetech/wtr.git#main"]
+pin-depends: [
+  "http-cookie.3.1.0" "git+ssh://git@github.com/lemaetech/http-cookie.git"
+]

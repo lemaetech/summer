@@ -43,5 +43,11 @@
    (>= 0.8.9))
   (lwt
    (>= 5.4.1))
+  (base64
+   (>= 3.5.0))
+  (mirage-crypto
+   (>= 0.10.3))
+  (mirage-crypto-rng
+   (>= 0.10.3))
   (ppx_expect :with-test)
   (ppx_deriving :with-test)))

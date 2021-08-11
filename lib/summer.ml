@@ -22,6 +22,8 @@ let _debug k =
     k (fun fmt ->
         Printf.kfprintf (fun oc -> Printf.fprintf oc "\n%!") stdout fmt )
 
+module Smap = Map.Make (String)
+
 type request =
   { method': method'
   ; target: string
@@ -31,12 +33,13 @@ type request =
   ; client_addr: string (* IP address of client. *)
   ; fd: Lwt_unix.file_descr
   ; cookies: Http_cookie.t list Lazy.t
-  ; (* unconsumed - bytes remaining after request is processed *)
-    mutable unconsumed: Cstruct.t
-  ; (* body_read - denotes if the request body has been read or not. This is used
-           to determine if the connection socket needs to be drained before
-           reading another request in the same connection. *)
-    mutable body_read: bool
+  ; session: session option
+  ; mutable unconsumed: Cstruct.t
+        (* unconsumed - bytes remaining after request is processed *)
+  ; mutable body_read: bool
+        (* body_read - denotes if the request body has been read or not. This is used
+             to determine if the connection socket needs to be drained before
+             reading another request in the same connection. *)
   ; mutable multipart_reader: Http_multipart_formdata.reader option }
 
 (* https://datatracker.ietf.org/doc/html/rfc7231#section-4 *)
@@ -44,6 +47,34 @@ and method' = Wtr.method'
 
 and header = string * string
 (* (name,value) *)
+
+and session =
+  { id: session_id option
+  ; items: session_items
+  ; save: session_items -> unit Lwt.t }
+
+and session_items = (string, string) Hashtbl.t
+
+and session_id = string
+
+type response =
+  { response_code: response_code
+  ; headers: string Smap.t
+  ; cookies: Http_cookie.t Smap.t
+  ; body: Cstruct.t }
+
+and response_code = int * string
+(* code, reason phrase *)
+
+and handler = request -> response Lwt.t
+
+and middleware = handler -> handler
+
+and memory_session =
+  { cookie_name: string
+  ; create_cookie: string -> Http_cookie.t
+        (* creates a session cookie given value. *)
+  ; sessions: (session_id, session_items) Hashtbl.t }
 
 exception Request_error of string
 
@@ -53,24 +84,25 @@ let method' request = request.method'
 let method_equal = Wtr.method_equal
 let target request = request.target
 let http_version request = request.http_version
-let headers request = request.headers
+let headers (request : request) = request.headers
 let client_addr request = request.client_addr
 let content_length request = request.content_length
-let cookies request = Lazy.force request.cookies
+let cookies (request : request) = Lazy.force request.cookies
 
 let find_cookie cookie_name request =
   List.find_opt
     (fun cookie -> String.equal (Http_cookie.name cookie) cookie_name)
     (cookies request)
 
-let request_header header request = List.assoc_opt header request.headers
+let request_header header (request : request) =
+  List.assoc_opt header request.headers
 
-let rec pp_request fmt t =
+let rec pp_request fmt (t : request) =
   let fields =
     [ Fmt.field "meth" (fun p -> p.method') pp_method
     ; Fmt.field "target" (fun p -> p.target) Fmt.string
     ; Fmt.field "http_version" (fun p -> p.http_version) pp_http_version
-    ; Fmt.field "headers" (fun p -> p.headers) pp_headers ]
+    ; Fmt.field "headers" (fun (p : request) -> p.headers) pp_headers ]
   in
   Fmt.record fields fmt t
 
@@ -80,7 +112,7 @@ and pp_http_version fmt t =
 
 and pp_method = Wtr.pp_method
 
-and pp_headers fmt t =
+and pp_headers fmt (t : header list) =
   let colon fmt _ = Fmt.string fmt ": " in
   let header_field = Fmt.(pair ~sep:colon string string) in
   Fmt.vbox Fmt.(list header_field) fmt t
@@ -211,6 +243,7 @@ let request fd unconsumed client_addr =
           ; content_length
           ; headers
           ; cookies
+          ; session= None
           ; client_addr= socketaddr_to_string client_addr
           ; fd
           ; body_read= false
@@ -253,8 +286,7 @@ let body request =
   | None -> raise (Request_error "content-length header not found")
 
 (* Form *)
-
-let multipart ?(body_buffer_size = io_buffer_size) request =
+let form_multipart ?(body_buffer_size = io_buffer_size) request =
   let body_buffer_size =
     if body_buffer_size > io_buffer_size then io_buffer_size
     else body_buffer_size
@@ -307,9 +339,9 @@ let multipart ?(body_buffer_size = io_buffer_size) request =
       request.multipart_reader <- Some reader ;
       parse_part (Http_multipart_formdata.read reader)
 
-let multipart_all request =
+let form_multipart_all request =
   let rec read_parts parts =
-    multipart request
+    form_multipart request
     >>= function
     | `End -> Lwt.return (List.rev parts)
     | `Header header ->
@@ -318,7 +350,7 @@ let multipart_all request =
     | `Error e -> raise (Request_error e)
     | _ -> assert false
   and read_body body =
-    multipart request
+    form_multipart request
     >>= function
     | `Body_end -> Lwt.return body
     | `Body buf -> read_body (Cstruct.append body buf)
@@ -327,7 +359,7 @@ let multipart_all request =
   in
   read_parts []
 
-let form_urlencoded request =
+let form_urlencoded (request : request) =
   match List.assoc_opt "content-type" request.headers with
   | Some "application/x-www-form-urlencoded" ->
       let+ body = body request in
@@ -335,9 +367,6 @@ let form_urlencoded request =
   | Some _ | None -> Lwt.return []
 
 (* Response *)
-
-type response_code = int * string (* code, reason phrase *)
-
 let response_code ?(reason_phrase = "unknown") = function
   (* Informational *)
   | 100 -> (100, "Continue")
@@ -393,23 +422,11 @@ let response_code ?(reason_phrase = "unknown") = function
         failwith (Printf.sprintf "code: %d is not a three-digit number" c)
       else (c, reason_phrase)
 
-let response_code_int : response_code -> int = fun (code, _) -> code
-let response_code_reason_phrase (_, phrase) = phrase
+let code_int : response_code -> int = fun (code, _) -> code
+let code_reason_phrase (_, phrase) = phrase
 let ok = response_code 200
 let internal_server_error = response_code 500
 let bad_request = response_code 400
-
-module Smap = Map.Make (String)
-
-type response =
-  { response_code: response_code
-  ; headers: string Smap.t
-  ; cookies: Http_cookie.t Smap.t
-  ; body: Cstruct.t }
-
-(*-- Handler --*)
-type handler = request -> response Lwt.t
-type middleware = handler -> handler
 
 let response_bigstring ?(response_code = ok) ?(headers = []) body =
   { response_code
@@ -444,7 +461,6 @@ let tyxml doc =
 let not_found _ = Lwt.return @@ response ~response_code:(response_code 404) ""
 
 (* Cookies *)
-
 let add_cookie cookie response =
   { response with
     cookies=
@@ -463,6 +479,74 @@ let add_header ~name value response =
 let remove_header name response =
   {response with headers= Smap.remove name response.headers}
 
+(* Routing *)
+let router router next_handler request =
+  match Wtr.match' request.method' request.target router with
+  | Some handler -> handler request
+  | None -> next_handler request
+
+(* Session *)
+
+let default_session_cookie_name = "___session___"
+
+let session_put ~key value request =
+  match request.session with
+  | Some session ->
+      Hashtbl.replace session.items key value ;
+      session.save session.items
+  | None -> Lwt.return_unit
+
+let session_find key request =
+  Option.bind request.session (fun session ->
+      Hashtbl.find_opt session.items key )
+
+let session_all request =
+  match request.session with
+  | Some session -> Hashtbl.to_seq session.items |> List.of_seq
+  | None -> []
+
+let memory_session ?expires ?max_age
+    ?(cookie_name = default_session_cookie_name) () =
+  let create_cookie value =
+    Http_cookie.create ?expires ?max_age ~path:"/" ~domain:"" ~http_only:true
+      ~same_site:Http_cookie.Same_site.Strict cookie_name ~value
+  in
+  {create_cookie; sessions= Hashtbl.create 0; cookie_name}
+
+let in_memory ms next_handler request =
+  let save session_id items =
+    Hashtbl.replace ms.sessions session_id items ;
+    Lwt.return_unit
+  in
+  let request =
+    match find_cookie ms.cookie_name request with
+    | Some session_cookie ->
+        let session_id = Http_cookie.value session_cookie in
+        let items =
+          Option.value
+            (Hashtbl.find_opt ms.sessions session_id)
+            ~default:(Hashtbl.create 0)
+        in
+        { request with
+          session= Some {items; save= save session_id; id= Some session_id} }
+    | None ->
+        let session_id = Secret.Key.(create () |> to_base64) in
+        let items = Hashtbl.create 0 in
+        { request with
+          session= Some {items; save= save session_id; id= Some session_id} }
+  in
+  (* Add session cookie to response *)
+  let open Lwt.Syntax in
+  let+ response = next_handler request in
+  match request.session with
+  | Some session -> (
+    match session.id with
+    | Some session_id ->
+        let cookie = ms.create_cookie session_id in
+        add_cookie cookie response
+    | None -> response )
+  | None -> response
+
 module IO_vector = Lwt_unix.IO_vectors
 
 let write_response fd {response_code; headers; body; cookies} =
@@ -470,18 +554,17 @@ let write_response fd {response_code; headers; body; cookies} =
 
   (* Write response status line. *)
   let status_line =
-    Format.sprintf "HTTP/1.1 %d %s\r\n"
-      (response_code_int response_code)
-      (response_code_reason_phrase response_code)
+    Format.sprintf "HTTP/1.1 %d %s\r\n" (code_int response_code)
+      (code_reason_phrase response_code)
     |> Bytes.unsafe_of_string
   in
   IO_vector.append_bytes iov status_line 0 (Bytes.length status_line) ;
 
+  let body_len = Cstruct.length body in
+
   (* Write response headers. *)
   ( if Smap.mem "content-length" headers then headers
-  else
-    let len = Cstruct.length body |> string_of_int in
-    Smap.add "content-length" len headers )
+  else Smap.add "content-length" (string_of_int body_len) headers )
   |> Smap.iter (fun name v ->
          let buf =
            Format.sprintf "%s: %s\r\n" name v |> Bytes.unsafe_of_string
@@ -492,7 +575,7 @@ let write_response fd {response_code; headers; body; cookies} =
   Smap.iter
     (fun _ cookie ->
       let header =
-        Format.sprintf "set-cookie: %s"
+        Format.sprintf "set-cookie: %s\r\n"
           (Http_cookie.to_cookie_header_value cookie)
         |> Bytes.unsafe_of_string
       in
@@ -501,17 +584,10 @@ let write_response fd {response_code; headers; body; cookies} =
 
   (* Write response body. *)
   IO_vector.append_bytes iov (Bytes.unsafe_of_string "\r\n") 0 2 ;
-  if Cstruct.length body > 0 then
-    IO_vector.append_bigarray iov (Cstruct.to_bigarray body) 0
-      (Cstruct.length body) ;
+  if body_len > 0 then
+    IO_vector.append_bigarray iov (Cstruct.to_bigarray body) 0 body_len ;
 
   Lwt_unix.writev fd iov >|= fun _ -> ()
-
-(* Routing *)
-let router router next_handler request =
-  match Wtr.match' request.method' request.target router with
-  | Some handler -> handler request
-  | None -> next_handler request
 
 (* Handle request*)
 let rec handle_requests unconsumed handler client_addr fd =

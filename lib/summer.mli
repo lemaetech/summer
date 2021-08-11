@@ -15,7 +15,7 @@
     - https://datatracker.ietf.org/doc/html/rfc7230
     - https://datatracker.ietf.org/doc/html/rfc7231 *)
 
-(** {1 Request} *)
+(** {1 Types} *)
 
 (** [request] represents a HTTP/1.1 request *)
 type request
@@ -34,6 +34,21 @@ and method' =
 
 (** [header] represents a HTTP header, a tuple of (name * value) *)
 and header = string * string
+
+and response
+
+(** See {{:https://tools.ietf.org/html/rfc7231#section-6} RFC7231§6} for more
+    details on http response codes *)
+and response_code
+
+(** ['a handler] represents a connection handler. *)
+and handler = request -> response Lwt.t
+
+and middleware = handler -> handler
+
+and memory_session
+
+(** {1 Request} *)
 
 val method_equal : method' -> method' -> bool
 val method' : request -> method'
@@ -63,9 +78,9 @@ val body : request -> string Lwt.t
 val pp_request : Format.formatter -> request -> unit
 val pp_method : Format.formatter -> method' -> unit
 
-(** {2 Form} *)
+(** {1 Form} *)
 
-val multipart :
+val form_multipart :
      ?body_buffer_size:int
   -> request
   -> [ `End  (** Reading of multipart form is complete. *)
@@ -86,7 +101,7 @@ val multipart :
     If the request is an invalid [multipart/formdata] content-type then it
     returns [400 Bad request] response. *)
 
-val multipart_all :
+val form_multipart_all :
   request -> (Http_multipart_formdata.part_header * Cstruct.t) list Lwt.t
 (** [multipart_all request] is a non streaming version of {!val:multipart}. It
     returns a list of multipart tuples - (part_header, body) - where each tuple
@@ -97,15 +112,7 @@ val form_urlencoded : request -> (string * string list) list Lwt.t
     [application/x-www-form-urlencoded] format. See
     {{:https://tools.ietf.org/html/rfc1866#section-8.2.1} RFC 1866 §8.2.1}. *)
 
-(** {2 Cookies} *)
-
 (** {1 Response} *)
-
-type response
-
-(** See {{:https://tools.ietf.org/html/rfc7231#section-6} RFC7231§6} for more
-    details on http response codes *)
-type response_code
 
 val ok : response_code
 (** HTTP 200 response code *)
@@ -126,11 +133,11 @@ val response_code : ?reason_phrase:string -> int -> response_code
     See {{:https://tools.ietf.org/html/rfc7231#section-6} RFC7231§6} for valid
     response codes. *)
 
-val response_code_int : response_code -> int
+val code_int : response_code -> int
 (** [response_code_int response_code] returns an integer representation of
     [response_code]. *)
 
-val response_code_reason_phrase : response_code -> string
+val code_reason_phrase : response_code -> string
 (** [response_code_reason_phrase response_code] returns reason phrase for
     [response_code]. *)
 
@@ -167,21 +174,40 @@ val remove_cookie : string -> response -> response
 (** [remove_cookie cookie_name response] removes cookie with [cookie_name] from
     response if it exists. *)
 
+val not_found : handler
+
 (** {2 Headers} *)
 
 val add_header : name:string -> string -> response -> response
 val remove_header : string -> response -> response
 
-(** {1 Handler/Middleware} *)
+(** {1 Session} *)
 
-(** ['a handler] represents a connection handler. *)
-type handler = request -> response Lwt.t
+val session_put : key:string -> string -> request -> unit Lwt.t
+(** [session_put ~key value req] stores session [value] corresponding to [key]. *)
 
-type middleware = handler -> handler
+val session_find : string -> request -> string option
+(** [session_find key req] returns a session value corresponding to [key]. *)
 
-val not_found : handler
+val session_all : request -> (string * string) list
+(** [session_all req] returns a list of session objects (key,value). *)
 
-(** {2 Routing} *)
+val memory_session :
+     ?expires:Http_cookie.date_time
+  -> ?max_age:int
+  -> ?cookie_name:string
+  -> unit
+  -> memory_session
+(** [memory_session] creates a new mession_session for the application.
+
+    If neither [expires] or [max_age] is given default session expires when the
+    user closes the browser session. *)
+
+val in_memory : memory_session -> middleware
+(** [in_memory mession_session] is a middleware to handle sessions in memory.
+    In-memory sessions are not persisted in between application restarts. *)
+
+(** {1 Routing} *)
 
 val router : handler Wtr.t -> middleware
 (* val get : ('a, handler) Wtr.uri -> handler -> handler Wtr.route *)
