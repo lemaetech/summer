@@ -11,22 +11,28 @@
 open Lwt.Infix
 open Tyxml.Html
 
-let about_handler _req =
+let about _req =
   html
     (head (title (txt "Summer: Echo App")) [])
     (body [div [txt "About page"]])
   |> Summer.tyxml |> Lwt.return
 
-let echo_handler name req =
+let echo req =
   Lwt.catch (fun () -> Summer.body req) (fun _exn -> Lwt.return "")
   >|= fun body ->
-  Format.asprintf "Hello %s!@.@.%a@.@.%s" name Summer.pp_request req body
-  |> Summer.text
+  Format.asprintf "%a@.@.%s" Summer.pp_request req body |> Summer.text
+
+let say_hello name _req =
+  html
+    (head (title (txt "Summer: Echo App")) [])
+    (body [div [txt ("Hello " ^ name ^ "!")]])
+  |> Summer.tyxml |> Lwt.return
 
 let router =
   Wtr.create
-    [ {%wtr| get     ; /about    |} about_handler
-    ; {%wtr| get,post; /echo/*   |} echo_handler ]
+    [ {%wtr| get     ; /about               |} about
+    ; {%wtr| get,post; /echo                |} echo
+    ; {%wtr| get     ; /say_hello/:string   |} say_hello ]
 
 let app =
   let session = Summer.memory_session () in
