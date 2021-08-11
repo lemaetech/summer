@@ -33,14 +33,13 @@ type request =
   ; client_addr: string (* IP address of client. *)
   ; fd: Lwt_unix.file_descr
   ; cookies: Http_cookie.t list Lazy.t
-  ; session_items: session_items
-  ; session_save: session_items -> unit Lwt.t
-  ; (* unconsumed - bytes remaining after request is processed *)
-    mutable unconsumed: Cstruct.t
-  ; (* body_read - denotes if the request body has been read or not. This is used
-           to determine if the connection socket needs to be drained before
-           reading another request in the same connection. *)
-    mutable body_read: bool
+  ; session: session
+  ; mutable unconsumed: Cstruct.t
+        (* unconsumed - bytes remaining after request is processed *)
+  ; mutable body_read: bool
+        (* body_read - denotes if the request body has been read or not. This is used
+             to determine if the connection socket needs to be drained before
+             reading another request in the same connection. *)
   ; mutable multipart_reader: Http_multipart_formdata.reader option }
 
 (* https://datatracker.ietf.org/doc/html/rfc7231#section-4 *)
@@ -49,7 +48,9 @@ and method' = Wtr.method'
 and header = string * string
 (* (name,value) *)
 
-and session_items = (string, string) Hashtbl.t
+and session =
+  { items: (string, string) Hashtbl.t
+  ; save: (string, string) Hashtbl.t -> unit Lwt.t }
 
 type response =
   { response_code: response_code
@@ -231,8 +232,7 @@ let request fd unconsumed client_addr =
           ; content_length
           ; headers
           ; cookies
-          ; session_items= Hashtbl.create 0
-          ; session_save= (fun _ -> Lwt.return_unit)
+          ; session= {items= Hashtbl.create 0; save= (fun _ -> Lwt.return_unit)}
           ; client_addr= socketaddr_to_string client_addr
           ; fd
           ; body_read= false
@@ -475,9 +475,12 @@ let router router next_handler request =
   | None -> next_handler request
 
 (* Session *)
-let session_put ~key:_ _value _request = Lwt.return_unit
-let session_find _key _request = None
-let session_all _request = []
+let session_put ~key value request =
+  Hashtbl.replace request.session.items key value ;
+  request.session.save request.session.items
+
+let session_find key request = Hashtbl.find_opt request.session.items key
+let session_all request = Hashtbl.to_seq request.session.items |> List.of_seq
 
 module IO_vector = Lwt_unix.IO_vectors
 

@@ -180,8 +180,13 @@ val remove_header : string -> response -> response
 (** {1 Session} *)
 
 val session_put : key:string -> string -> request -> unit Lwt.t
+(** [session_put ~key value req] stores session [value] corresponding to [key]. *)
+
 val session_find : string -> request -> string option
+(** [session_find key req] returns a session value corresponding to [key]. *)
+
 val session_all : request -> (string * string) list
+(** [session_all req] returns a list of session objects (key,value). *)
 
 (** {1 Routing} *)
 
