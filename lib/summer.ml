@@ -562,8 +562,6 @@ let write_response fd {response_code; headers; body; cookies} =
 
   let body_len = Cstruct.length body in
 
-  _debug (fun k -> k "body_len: %d" body_len) ;
-
   (* Write response headers. *)
   ( if Smap.mem "content-length" headers then headers
   else Smap.add "content-length" (string_of_int body_len) headers )
@@ -577,7 +575,7 @@ let write_response fd {response_code; headers; body; cookies} =
   Smap.iter
     (fun _ cookie ->
       let header =
-        Format.sprintf "set-cookie: %s"
+        Format.sprintf "set-cookie: %s\r\n"
           (Http_cookie.to_cookie_header_value cookie)
         |> Bytes.unsafe_of_string
       in
