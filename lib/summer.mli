@@ -15,7 +15,7 @@
     - https://datatracker.ietf.org/doc/html/rfc7230
     - https://datatracker.ietf.org/doc/html/rfc7231 *)
 
-(** {1 Request} *)
+(** {1 Types} *)
 
 (** [request] represents a HTTP/1.1 request *)
 type request
@@ -35,16 +35,20 @@ and method' =
 (** [header] represents a HTTP header, a tuple of (name * value) *)
 and header = string * string
 
-(** ['a handler] represents a connection handler. *)
-and handler = request -> response Lwt.t
-
-and middleware = handler -> handler
-
 and response
 
 (** See {{:https://tools.ietf.org/html/rfc7231#section-6} RFC7231§6} for more
     details on http response codes *)
 and response_code
+
+(** ['a handler] represents a connection handler. *)
+and handler = request -> response Lwt.t
+
+and middleware = handler -> handler
+
+and memory_session
+
+(** {1 Request} *)
 
 val method_equal : method' -> method' -> bool
 val method' : request -> method'
@@ -74,7 +78,7 @@ val body : request -> string Lwt.t
 val pp_request : Format.formatter -> request -> unit
 val pp_method : Format.formatter -> method' -> unit
 
-(** {2 Form} *)
+(** {1 Form} *)
 
 val form_multipart :
      ?body_buffer_size:int
@@ -187,6 +191,21 @@ val session_find : string -> request -> string option
 
 val session_all : request -> (string * string) list
 (** [session_all req] returns a list of session objects (key,value). *)
+
+val memory_session :
+     ?expires:Http_cookie.date_time
+  -> ?max_age:int
+  -> ?cookie_name:string
+  -> unit
+  -> memory_session
+(** [memory_session] creates a new mession_session for the application.
+
+    If neither [expires] or [max_age] is given default session expires when the
+    user closes the browser session. *)
+
+val in_memory : memory_session -> middleware
+(** [in_memory mession_session] is a middleware to handle sessions in memory.
+    In-memory sessions are not persisted in between application restrts. *)
 
 (** {1 Routing} *)
 

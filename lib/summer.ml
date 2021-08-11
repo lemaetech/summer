@@ -33,7 +33,7 @@ type request =
   ; client_addr: string (* IP address of client. *)
   ; fd: Lwt_unix.file_descr
   ; cookies: Http_cookie.t list Lazy.t
-  ; session: session
+  ; session: session option
   ; mutable unconsumed: Cstruct.t
         (* unconsumed - bytes remaining after request is processed *)
   ; mutable body_read: bool
@@ -49,8 +49,13 @@ and header = string * string
 (* (name,value) *)
 
 and session =
-  { items: (string, string) Hashtbl.t
-  ; save: (string, string) Hashtbl.t -> unit Lwt.t }
+  { id: session_id option
+  ; items: session_items
+  ; save: session_items -> unit Lwt.t }
+
+and session_items = (string, string) Hashtbl.t
+
+and session_id = string
 
 type response =
   { response_code: response_code
@@ -64,6 +69,10 @@ and response_code = int * string
 and handler = request -> response Lwt.t
 
 and middleware = handler -> handler
+
+and memory_session =
+  { mutable cookie: Http_cookie.t
+  ; sessions: (session_id, session_items) Hashtbl.t }
 
 exception Request_error of string
 
@@ -232,7 +241,7 @@ let request fd unconsumed client_addr =
           ; content_length
           ; headers
           ; cookies
-          ; session= {items= Hashtbl.create 0; save= (fun _ -> Lwt.return_unit)}
+          ; session= None
           ; client_addr= socketaddr_to_string client_addr
           ; fd
           ; body_read= false
@@ -475,12 +484,71 @@ let router router next_handler request =
   | None -> next_handler request
 
 (* Session *)
-let session_put ~key value request =
-  Hashtbl.replace request.session.items key value ;
-  request.session.save request.session.items
 
-let session_find key request = Hashtbl.find_opt request.session.items key
-let session_all request = Hashtbl.to_seq request.session.items |> List.of_seq
+let default_session_cookie_name = "___session___"
+
+let session_put ~key value request =
+  match request.session with
+  | Some session ->
+      Hashtbl.replace session.items key value ;
+      session.save session.items
+  | None -> Lwt.return_unit
+
+let session_find key request =
+  Option.bind request.session (fun session ->
+      Hashtbl.find_opt session.items key )
+
+let session_all request =
+  match request.session with
+  | Some session -> Hashtbl.to_seq session.items |> List.of_seq
+  | None -> []
+
+let memory_session ?expires ?max_age
+    ?(cookie_name = default_session_cookie_name) () =
+  let cookie =
+    Http_cookie.create ?expires ?max_age ~path:"/" ~domain:"" ~http_only:true
+      ~same_site:Http_cookie.Same_site.Strict cookie_name ~value:""
+  in
+  {cookie; sessions= Hashtbl.create 0}
+
+let in_memory ms next_handler request =
+  let save session_id items =
+    Hashtbl.replace ms.sessions session_id items ;
+    Lwt.return_unit
+  in
+  let request =
+    let cookie_name = Http_cookie.name ms.cookie in
+    match find_cookie cookie_name request with
+    | Some session_cookie ->
+        let session_id = Http_cookie.value session_cookie in
+        let request' =
+          Option.map
+            (fun items ->
+              { request with
+                session= Some {items; save= save session_id; id= Some session_id}
+              } )
+            (Hashtbl.find_opt ms.sessions session_id)
+          |> Option.value ~default:request
+        in
+        request'
+    | None ->
+        let session_id = "233" in
+        let items = Hashtbl.create 0 in
+        { request with
+          session= Some {items; save= save session_id; id= Some session_id} }
+  in
+
+  (* Add session cookie to response *)
+  let open Lwt.Syntax in
+  let+ response = next_handler request in
+  match request.session with
+  | Some session -> (
+    match session.id with
+    | Some session_id ->
+        let cookie = Http_cookie.update_value session_id ms.cookie in
+        add_cookie cookie response
+    | None -> response )
+  | None -> response
 
 module IO_vector = Lwt_unix.IO_vectors
 
