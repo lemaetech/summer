@@ -8,7 +8,7 @@
  * %%NAME%% %%VERSION%%
  *-------------------------------------------------------------------------*)
 
-open Lwt.Infix
+open Lwt.Syntax
 open Tyxml.Html
 
 let about _req =
@@ -18,8 +18,9 @@ let about _req =
   |> Summer.tyxml |> Lwt.return
 
 let echo req =
-  Lwt.catch (fun () -> Summer.body req) (fun _exn -> Lwt.return "")
-  >|= fun body ->
+  let+ body =
+    Lwt.catch (fun () -> Summer.body req) (fun _exn -> Lwt.return "")
+  in
   Format.asprintf "%a@.@.%s" Summer.pp_request req body |> Summer.text
 
 let say_hello name _req =
@@ -36,8 +37,7 @@ let counter : Summer.handler =
     | Some v -> 1 + int_of_string v
     | None -> 0
   in
-  Summer.session_put ~key (string_of_int counter) req
-  >>= fun () ->
+  let* () = Summer.session_put ~key (string_of_int counter) req in
   html
     (head (title (txt "Summer: Echo App")) [])
     (body [div [txt ("Hello " ^ string_of_int counter ^ "!")]])

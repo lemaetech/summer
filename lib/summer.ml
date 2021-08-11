@@ -530,7 +530,7 @@ let in_memory ms next_handler request =
         { request with
           session= Some {items; save= save session_id; id= Some session_id} }
     | None ->
-        let session_id = "233" in
+        let session_id = Secret.Key.(create () |> to_base64) in
         let items = Hashtbl.create 0 in
         { request with
           session= Some {items; save= save session_id; id= Some session_id} }
