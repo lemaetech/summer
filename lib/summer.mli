@@ -204,7 +204,7 @@ val memory_session :
     user closes the browser session. *)
 
 val in_memory : memory_session -> middleware
-(** [in_memory mession_session] is a middleware to handle sessions in memory.
+(** [in_memory memory_session] is a middleware to handle sessions in memory.
     In-memory sessions are not persisted in between application restarts. *)
 
 (** {1 Routing} *)
