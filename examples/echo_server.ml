@@ -28,11 +28,27 @@ let say_hello name _req =
     (body [div [txt ("Hello " ^ name ^ "!")]])
   |> Summer.tyxml |> Lwt.return
 
+let counter : Summer.handler =
+ fun req ->
+  let key = "counter" in
+  let counter =
+    match Summer.session_find key req with
+    | Some v -> 1 + int_of_string v
+    | None -> 0
+  in
+  Summer.session_put ~key (string_of_int counter) req
+  >>= fun () ->
+  html
+    (head (title (txt "Summer: Echo App")) [])
+    (body [div [txt ("Hello " ^ string_of_int counter ^ "!")]])
+  |> Summer.tyxml |> Lwt.return
+
 let router =
   Wtr.create
     [ {%wtr| get     ; /about               |} about
     ; {%wtr| get,post; /echo                |} echo
-    ; {%wtr| get     ; /say_hello/:string   |} say_hello ]
+    ; {%wtr| get     ; /say_hello/:string   |} say_hello
+    ; {%wtr| get     ; /counter             |} counter ]
 
 let app =
   let session = Summer.memory_session () in

@@ -522,23 +522,19 @@ let in_memory ms next_handler request =
     match find_cookie ms.cookie_name request with
     | Some session_cookie ->
         let session_id = Http_cookie.value session_cookie in
-        let request' =
-          Option.map
-            (fun items ->
-              { request with
-                session= Some {items; save= save session_id; id= Some session_id}
-              } )
+        let items =
+          Option.value
             (Hashtbl.find_opt ms.sessions session_id)
-          |> Option.value ~default:request
+            ~default:(Hashtbl.create 0)
         in
-        request'
+        { request with
+          session= Some {items; save= save session_id; id= Some session_id} }
     | None ->
         let session_id = "233" in
         let items = Hashtbl.create 0 in
         { request with
           session= Some {items; save= save session_id; id= Some session_id} }
   in
-
   (* Add session cookie to response *)
   let open Lwt.Syntax in
   let+ response = next_handler request in
@@ -564,11 +560,13 @@ let write_response fd {response_code; headers; body; cookies} =
   in
   IO_vector.append_bytes iov status_line 0 (Bytes.length status_line) ;
 
+  let body_len = Cstruct.length body in
+
+  _debug (fun k -> k "body_len: %d" body_len) ;
+
   (* Write response headers. *)
   ( if Smap.mem "content-length" headers then headers
-  else
-    let len = Cstruct.length body |> string_of_int in
-    Smap.add "content-length" len headers )
+  else Smap.add "content-length" (string_of_int body_len) headers )
   |> Smap.iter (fun name v ->
          let buf =
            Format.sprintf "%s: %s\r\n" name v |> Bytes.unsafe_of_string
@@ -588,9 +586,8 @@ let write_response fd {response_code; headers; body; cookies} =
 
   (* Write response body. *)
   IO_vector.append_bytes iov (Bytes.unsafe_of_string "\r\n") 0 2 ;
-  if Cstruct.length body > 0 then
-    IO_vector.append_bigarray iov (Cstruct.to_bigarray body) 0
-      (Cstruct.length body) ;
+  if body_len > 0 then
+    IO_vector.append_bigarray iov (Cstruct.to_bigarray body) 0 body_len ;
 
   Lwt_unix.writev fd iov >|= fun _ -> ()
 
