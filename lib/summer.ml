@@ -538,14 +538,12 @@ let in_memory ms next_handler request =
   (* Add session cookie to response *)
   let open Lwt.Syntax in
   let+ response = next_handler request in
-  match request.session with
-  | Some session -> (
-    match session.id with
-    | Some session_id ->
-        let cookie = ms.create_cookie session_id in
-        add_cookie cookie response
-    | None -> response )
-  | None -> response
+  Option.bind request.session (fun session ->
+      session.id
+      |> Option.map (fun session_id ->
+             let cookie = ms.create_cookie session_id in
+             add_cookie cookie response ) )
+  |> Option.value ~default:response
 
 module IO_vector = Lwt_unix.IO_vectors
 
