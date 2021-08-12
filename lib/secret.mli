@@ -30,9 +30,10 @@ val encrypt : Key.t -> string -> t
 (** [encrypt key s] is {!type:t} of unencrypted data [s]. *)
 
 val decrypt : Key.t -> t -> (string, string) result
-(** [decrypt key t] returns a decrypted string value of [t]. *)
+(** [decrypt key t] is [Ok d] where [d] is a decrypted string value of [t]. It
+    is an [Error err] if [decrypt] is unable to decrypt [t]. *)
 
 val decrypt_base64 : Key.t -> string -> (string, string) result
 (** [decrypt_base64 key s] returns [Ok d] where [d] is the decrypted version of
     Base64 formatted [s]. It returns [Error e] if [s] is not a valid Base64
-    string value. *)
+    string value or [decrypt_base64] is unable to decrypt [s]. *)
