@@ -560,25 +560,39 @@ let write_response fd {response_code; headers; body; cookies} =
 
   let body_len = Cstruct.length body in
 
-  (* Write response headers. *)
-  ( if Smap.mem "content-length" headers then headers
-  else Smap.add "content-length" (string_of_int body_len) headers )
-  |> Smap.iter (fun name v ->
-         let buf =
-           Format.sprintf "%s: %s\r\n" name v |> Bytes.unsafe_of_string
-         in
-         IO_vector.append_bytes iov buf 0 (Bytes.length buf) ) ;
-
-  (* Write Set-Cookie headers. *)
-  Smap.iter
-    (fun _ cookie ->
-      let header =
-        Format.sprintf "set-cookie: %s\r\n"
-          (Http_cookie.to_cookie_header_value cookie)
-        |> Bytes.unsafe_of_string
+  (* Add set-cookie headers if we have cookies. *)
+  let headers =
+    if Smap.cardinal cookies > 0 then
+      let headers =
+        Smap.fold
+          (fun _cookie_name cookie acc ->
+            Smap.add "set-cookie"
+              (Http_cookie.to_cookie_header_value cookie)
+              acc )
+          cookies headers
       in
-      IO_vector.append_bytes iov header 0 (Bytes.length header) )
-    cookies ;
+      (* Update cache-control header so that we don't cache cookies. *)
+      let no_cache = {|no-cache="Set-Cookie"|} in
+      Smap.update "cache-control"
+        (function
+          | Some v -> Some (Format.sprintf "%s, %s" v no_cache)
+          | None -> Some no_cache )
+        headers
+    else headers
+  in
+
+  (* Add content-length headers if it doesn't exist. *)
+  let headers =
+    if Smap.mem "content-length" headers then headers
+    else Smap.add "content-length" (string_of_int body_len) headers
+  in
+
+  (* Write response headers. *)
+  Smap.iter
+    (fun name v ->
+      let buf = Format.sprintf "%s: %s\r\n" name v |> Bytes.unsafe_of_string in
+      IO_vector.append_bytes iov buf 0 (Bytes.length buf) )
+    headers ;
 
   (* Write response body. *)
   IO_vector.append_bytes iov (Bytes.unsafe_of_string "\r\n") 0 2 ;
