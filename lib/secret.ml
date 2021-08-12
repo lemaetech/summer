@@ -39,10 +39,7 @@ end
 
 type t = string (* t is a base64 encoded string. *)
 
-external of_base64 : string -> t = "%identity"
-external to_base64 : t -> string = "%identity"
-
-let encrypt ~key ~contents =
+let encrypt key contents =
   let key = Mirage_crypto.Chacha20.of_secret (Key.raw key) in
   let nonce = Mirage_crypto_rng.generate nonce_size in
   let encrypted =
@@ -53,7 +50,17 @@ let encrypt ~key ~contents =
   |> Cstruct.to_string
   |> Base64.(encode_string ~alphabet:uri_safe_alphabet)
 
-let decrypt ~key ~contents =
+let decrypt key (t : t) =
+  let contents = Cstruct.of_string t in
+  let key = Mirage_crypto.Chacha20.of_secret (Key.raw key) in
+  let nonce = Cstruct.sub contents 0 nonce_size in
+  Cstruct.sub contents nonce_size (Cstruct.length contents - nonce_size)
+  |> Mirage_crypto.Chacha20.authenticate_decrypt ~key ~nonce
+  |> function
+  | Some s -> Ok (Cstruct.to_string s)
+  | None -> Error "Unable to decrypt contents"
+
+let decrypt_base64 key contents =
   try
     let key = Mirage_crypto.Chacha20.of_secret (Key.raw key) in
     let contents =
