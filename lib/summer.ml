@@ -76,6 +76,10 @@ and memory_session =
         (* creates a session cookie given value. *)
   ; sessions: (session_id, session_items) Hashtbl.t }
 
+and key = Secret.Key.t
+
+and secret = Secret.t
+
 exception Request_error of string
 
 let io_buffer_size = 65536 (* UNIX_BUFFER_SIZE 4.0.0 *)
@@ -485,6 +489,14 @@ let router router next_handler request =
   | Some handler -> handler request
   | None -> next_handler request
 
+(* Encryption/decryption *)
+
+let key sz = Secret.Key.create sz
+let key_to_base64 = Secret.Key.to_base64
+let key_of_base64 = Secret.Key.of_base64
+let encrypt = Secret.encrypt
+let decrypt_base64 = Secret.decrypt_base64
+
 (* Session *)
 
 let default_session_cookie_name = "___session___"
@@ -513,6 +525,8 @@ let memory_session ?expires ?max_age
   in
   {create_cookie; sessions= Hashtbl.create 0; cookie_name}
 
+let cookie_session _key = failwith ""
+
 let in_memory ms next_handler request =
   let save session_id items =
     Hashtbl.replace ms.sessions session_id items ;
@@ -530,7 +544,7 @@ let in_memory ms next_handler request =
         { request with
           session= Some {items; save= save session_id; id= Some session_id} }
     | None ->
-        let session_id = Secret.Key.(create () |> to_base64) in
+        let session_id = Secret.Key.(create 32 |> to_base64) in
         let items = Hashtbl.create 0 in
         { request with
           session= Some {items; save= save session_id; id= Some session_id} }

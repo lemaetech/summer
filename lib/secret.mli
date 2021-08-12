@@ -1,16 +1,13 @@
 module Key : sig
   type t
 
-  val size : int
-  (** [size] returns the size of {!type:t} in bytes. *)
-
   val raw : t -> Cstruct.t
   (** [raw t] returns raw key bytes. *)
 
-  val create : unit -> t
-  (** [create ()] is key {!type:t} whose size is {!val:size}. *)
+  val create : int -> t
+  (** [create sz] is key {!type:t} whose size [sz] . *)
 
-  val of_string : string -> (t, string) result
+  val of_string : string -> t
   val of_base64 : string -> (t, string) result
   val to_base64 : t -> string
 end
@@ -27,7 +24,7 @@ val random_bytes : int -> Cstruct.t
 (** [random_bytes sz] returns random bytes of count [sz]. *)
 
 val encrypt : Key.t -> string -> t
-(** [encrypt key s] is {!type:t} of unencrypted data [s]. *)
+(** [encrypt key s] is {!type:t} of encrypted data [s]. *)
 
 val decrypt : Key.t -> t -> (string, string) result
 (** [decrypt key t] is [Ok d] where [d] is a decrypted string value of [t]. It

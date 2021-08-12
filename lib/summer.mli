@@ -48,6 +48,12 @@ and middleware = handler -> handler
 
 and memory_session
 
+(** A value used for encryption/decryption. *)
+and key
+
+(** Represents an encrypted content. *)
+and secret
+
 (** {1 Request} *)
 
 val method_equal : method' -> method' -> bool
@@ -181,6 +187,16 @@ val not_found : handler
 val add_header : name:string -> string -> response -> response
 val remove_header : string -> response -> response
 
+(** {1 Encryption/Decryption} *)
+
+val key : int -> key
+(** [key sz] is {!type:key} which has [sz] count of bytes. *)
+
+val key_to_base64 : key -> string
+val key_of_base64 : string -> (key, string) result
+val encrypt : key -> string -> secret
+val decrypt_base64 : key -> string -> (string, string) result
+
 (** {1 Session} *)
 
 val session_put : key:string -> string -> request -> unit Lwt.t
@@ -191,6 +207,8 @@ val session_find : string -> request -> string option
 
 val session_all : request -> (string * string) list
 (** [session_all req] returns a list of session objects (key,value). *)
+
+val cookie_session : key -> middleware
 
 val memory_session :
      ?expires:Http_cookie.date_time

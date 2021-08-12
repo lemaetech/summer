@@ -5,36 +5,23 @@ let random_bytes size =
   Lazy.force initialize ;
   Mirage_crypto_rng.generate size
 
-let ( let+ ) r f = Result.map f r
-
 module Key = struct
   type t = Cstruct.t
 
-  let size = 32
-
   external raw : t -> Cstruct.t = "%identity"
 
-  let create () = random_bytes size
-
-  let check_key_size s =
-    if String.length s = size then Ok s
-    else
-      Error (Format.sprintf "Invalid key size: Key size must be %d bytes" size)
+  let create sz = random_bytes sz
 
   let of_base64 s =
     match Base64.(decode ~pad:false ~alphabet:uri_safe_alphabet s) with
-    | Ok s ->
-        let+ s = check_key_size s in
-        Cstruct.of_string s
+    | Ok s -> Ok (Cstruct.of_string s)
     | Error (`Msg msg) -> Error msg
 
   let to_base64 t =
     Cstruct.to_string t
     |> Base64.(encode_string ~pad:false ~alphabet:uri_safe_alphabet)
 
-  let of_string s =
-    let+ s = check_key_size s in
-    Cstruct.of_string s
+  let of_string s = Cstruct.of_string s
 end
 
 type t = string (* t is a base64 encoded string. *)
