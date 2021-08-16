@@ -224,7 +224,7 @@ val memory_storage :
 
     [cookie_name] is the name of the session cookie. *)
 
-val in_memory : memory_storage -> middleware
+val memory_session : memory_storage -> middleware
 (** [in_memory memory_session] is a middleware to handle sessions in memory.
     In-memory sessions are not persisted in between application restarts. *)
 

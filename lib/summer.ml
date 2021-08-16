@@ -533,7 +533,7 @@ let memory_storage ?expires ?max_age
 
 let cookie_session _key = failwith ""
 
-let in_memory ms next_handler request =
+let memory_session ms next_handler request =
   let save session_id items =
     Hashtbl.replace ms.sessions session_id items ;
     Lwt.return_unit
