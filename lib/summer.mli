@@ -212,14 +212,17 @@ val cookie_session : key -> middleware
 
 val memory_session :
      ?expires:Http_cookie.date_time
-  -> ?max_age:int
+  -> ?max_age:int64
   -> ?cookie_name:string
   -> unit
   -> memory_session
-(** [memory_session] creates a new mession_session for the application.
+(** [memory_session ?expires ?max_age ?cookie_name] is a new
+    {!type:memory_session}
 
     If neither [expires] or [max_age] is given default session expires when the
-    user closes the browser session. *)
+    user closes the browser session.
+
+    [cookie_name] is the name of the session cookie. *)
 
 val in_memory : memory_session -> middleware
 (** [in_memory memory_session] is a middleware to handle sessions in memory.

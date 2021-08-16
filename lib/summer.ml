@@ -32,7 +32,7 @@ type request =
   ; headers: (string * string) list
   ; client_addr: string (* IP address of client. *)
   ; fd: Lwt_unix.file_descr
-  ; cookies: Http_cookie.t list Lazy.t
+  ; cookies: Http_cookie.t list
   ; session: session option
   ; mutable unconsumed: Cstruct.t
         (* unconsumed - bytes remaining after request is processed *)
@@ -91,7 +91,7 @@ let http_version request = request.http_version
 let headers (request : request) = request.headers
 let client_addr request = request.client_addr
 let content_length request = request.content_length
-let cookies (request : request) = Lazy.force request.cookies
+let cookies (request : request) = request.cookies
 
 let find_cookie cookie_name request =
   List.find_opt
@@ -198,7 +198,8 @@ let request fd unconsumed client_addr =
                   (Format.sprintf "Invalid content-length value: %s" len) ) )
          | None -> return None
        in
-       `Request (meth, request_target, http_version, content_length, headers) )
+       `Request_line
+         (meth, request_target, http_version, content_length, headers) )
       <* crlf
     in
     let eof = end_of_input >>| fun () -> `Connection_closed in
@@ -233,26 +234,28 @@ let request fd unconsumed client_addr =
   match parse_result with
   | Ok (x, unconsumed) -> (
     match x with
-    | `Request (method', target, http_version, content_length, headers) ->
-        let cookies =
-          Lazy.from_fun (fun () ->
-              match List.assoc_opt "cookie" headers with
-              | Some v -> Http_cookie.of_cookie_header v
-              | None -> [] )
-        in
-        `Request
+    | `Request_line (method', target, http_version, content_length, headers)
+      -> (
+        let request =
           { method'
           ; target
           ; http_version
           ; content_length
           ; headers
-          ; cookies
+          ; cookies= []
           ; session= None
           ; client_addr= socketaddr_to_string client_addr
           ; fd
           ; body_read= false
           ; unconsumed
           ; multipart_reader= None }
+        in
+        match List.assoc_opt "cookie" headers with
+        | Some v -> (
+          match Http_cookie.of_cookie v with
+          | Ok cookies -> `Request {request with cookies}
+          | Error e -> `Error e )
+        | None -> `Request request )
     | `Connection_closed -> `Connection_closed )
   | Error x -> `Error x
 
@@ -520,8 +523,11 @@ let session_all request =
 let memory_session ?expires ?max_age
     ?(cookie_name = default_session_cookie_name) () =
   let create_cookie value =
-    Http_cookie.create ?expires ?max_age ~path:"/" ~domain:"" ~http_only:true
-      ~same_site:Http_cookie.Same_site.Strict cookie_name ~value
+    let cookie =
+      Http_cookie.create ?expires ?max_age ~path:"/" ~domain:"" ~http_only:true
+        ~same_site:`Strict ~name:cookie_name value
+    in
+    match cookie with Ok cookie -> cookie | Error e -> raise (Request_error e)
   in
   {create_cookie; sessions= Hashtbl.create 0; cookie_name}
 
@@ -580,9 +586,7 @@ let write_response fd {response_code; headers; body; cookies} =
       let headers =
         Smap.fold
           (fun _cookie_name cookie acc ->
-            Smap.add "set-cookie"
-              (Http_cookie.to_cookie_header_value cookie)
-              acc )
+            Smap.add "set-cookie" (Http_cookie.to_set_cookie cookie) acc )
           cookies headers
       in
       (* Update cache-control header so that we don't cache cookies. *)

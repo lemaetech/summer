@@ -5,7 +5,6 @@
   cstruct
   http-multipart-formdata
   http-cookie
-  session
   wtr
   tyxml
   angstrom
