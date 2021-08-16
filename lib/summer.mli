@@ -46,7 +46,7 @@ and handler = request -> response Lwt.t
 
 and middleware = handler -> handler
 
-and memory_session
+and memory_storage
 
 (** A value used for encryption/decryption. *)
 and key
@@ -210,13 +210,13 @@ val session_all : request -> (string * string) list
 
 val cookie_session : key -> middleware
 
-val memory_session :
+val memory_storage :
      ?expires:Http_cookie.date_time
   -> ?max_age:int64
   -> ?cookie_name:string
   -> unit
-  -> memory_session
-(** [memory_session ?expires ?max_age ?cookie_name] is a new
+  -> memory_storage
+(** [memory_session ?expires ?max_age ?cookie_name ()] is a new
     {!type:memory_session}
 
     If neither [expires] or [max_age] is given default session expires when the
@@ -224,9 +224,11 @@ val memory_session :
 
     [cookie_name] is the name of the session cookie. *)
 
-val in_memory : memory_session -> middleware
+val in_memory : memory_storage -> middleware
 (** [in_memory memory_session] is a middleware to handle sessions in memory.
     In-memory sessions are not persisted in between application restarts. *)
+
+(* val cookie_session *)
 
 (** {1 Routing} *)
 

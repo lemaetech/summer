@@ -51,7 +51,7 @@ let router =
     ; {%wtr| get     ; /counter             |} counter ]
 
 let app =
-  let session = Summer.memory_session () in
+  let session = Summer.memory_storage () in
   Summer.in_memory session @@ Summer.router router @@ Summer.not_found
 
 let () =

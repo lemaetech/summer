@@ -70,7 +70,7 @@ and handler = request -> response Lwt.t
 
 and middleware = handler -> handler
 
-and memory_session =
+and memory_storage =
   { cookie_name: string
   ; create_cookie: string -> Http_cookie.t
         (* creates a session cookie given value. *)
@@ -520,7 +520,7 @@ let session_all request =
   | Some session -> Hashtbl.to_seq session.items |> List.of_seq
   | None -> []
 
-let memory_session ?expires ?max_age
+let memory_storage ?expires ?max_age
     ?(cookie_name = default_session_cookie_name) () =
   let create_cookie value =
     let cookie =
@@ -564,6 +564,8 @@ let in_memory ms next_handler request =
              let cookie = ms.create_cookie session_id in
              add_cookie cookie response ) )
   |> Option.value ~default:response
+
+(* Write response *)
 
 module IO_vector = Lwt_unix.IO_vectors
 
