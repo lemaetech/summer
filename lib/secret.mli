@@ -12,10 +12,6 @@ module Key : sig
   val to_base64 : t -> string
 end
 
-(** Represents a Base64 encoded encrypted secret data. The encryption/decryption
-    cipher used is ChaCha20. *)
-type t
-
 val nonce_size : int
 (** returns a nonce size (key size) for generating key which in turn can be used
     for as parameter for {!val:encrypt}/{!val:deccrypt}. *)
@@ -23,12 +19,8 @@ val nonce_size : int
 val random_bytes : int -> Cstruct.t
 (** [random_bytes sz] returns random bytes of count [sz]. *)
 
-val encrypt : Key.t -> string -> t
+val encrypt_base64 : Key.t -> string -> string
 (** [encrypt key s] is {!type:t} of encrypted data [s]. *)
-
-val decrypt : Key.t -> t -> (string, string) result
-(** [decrypt key t] is [Ok d] where [d] is a decrypted string value of [t]. It
-    is an [Error err] if [decrypt] is unable to decrypt [t]. *)
 
 val decrypt_base64 : Key.t -> string -> (string, string) result
 (** [decrypt_base64 key s] returns [Ok d] where [d] is the decrypted version of

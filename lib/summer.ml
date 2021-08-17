@@ -71,8 +71,6 @@ and memory_storage = (session_id, session_items) Hashtbl.t
 
 and key = Secret.Key.t
 
-and secret = Secret.t
-
 exception Request_error of string
 
 let io_buffer_size = 65536 (* UNIX_BUFFER_SIZE 4.0.0 *)
@@ -490,7 +488,7 @@ let router router next_handler request =
 let key sz = Secret.Key.create sz
 let key_to_base64 = Secret.Key.to_base64
 let key_of_base64 = Secret.Key.of_base64
-let encrypt = Secret.encrypt
+let encrypt_base64 = Secret.encrypt_base64
 let decrypt_base64 = Secret.decrypt_base64
 
 (* Session *)
@@ -512,7 +510,63 @@ let session_all request =
   | None -> []
 
 let memory_storage () = Hashtbl.create 0
-let cookie_session _key = failwith ""
+
+let cookie_session ?expires ?max_age ?http_only ~cookie_name key next_handler
+    request =
+  let save _ = Lwt.return_unit in
+  let encode_session_data session_data =
+    Hashtbl.to_seq session_data
+    |> List.of_seq
+    |> List.map (fun (key, value) -> Csexp.(List [Atom key; Atom value]))
+    |> fun l -> Csexp.List l |> Csexp.to_string |> encrypt_base64 key
+  in
+  let decode_session_data session_data =
+    let[@inline] err () = raise (Request_error "Invalid cookie session data") in
+    let csexp =
+      decrypt_base64 key session_data
+      |> function Ok v -> v | Error s -> raise (Request_error s)
+    in
+    let csexp =
+      Csexp.parse_string csexp
+      |> function
+      | Ok v -> v
+      | Error (o, s) ->
+          raise
+            (Request_error
+               (Format.sprintf "Csexp parsing error at offset '%d': %s" o s) )
+    in
+    match csexp with
+    | Csexp.List key_values ->
+        List.map
+          (function
+            | Csexp.(List [Atom key; Atom value]) -> (key, value) | _ -> err ()
+            )
+          key_values
+        |> List.to_seq |> Hashtbl.of_seq
+    | Csexp.Atom _ -> err ()
+  in
+  let request =
+    match find_cookie cookie_name request with
+    | Some cookie ->
+        let items = decode_session_data (Http_cookie.value cookie) in
+        {request with session= Some {items; save}}
+    | None ->
+        let items = Hashtbl.create 0 in
+        {request with session= Some {items; save}}
+  in
+  (* Add session cookie to response *)
+  let open Lwt.Syntax in
+  let+ response = next_handler request in
+  let session_data =
+    let session = Option.get request.session in
+    encode_session_data session.items
+  in
+  let cookie =
+    Http_cookie.create ?expires ?max_age ?http_only ~same_site:`Strict
+      ~name:cookie_name session_data
+    |> Result.get_ok
+  in
+  add_cookie cookie response
 
 let memory_session ?expires ?max_age ?http_only ~cookie_name ms next_handler
     request =

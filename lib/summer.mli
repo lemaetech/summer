@@ -51,9 +51,6 @@ and memory_storage
 (** A value used for encryption/decryption. *)
 and key
 
-(** Represents an encrypted content. *)
-and secret
-
 (** {1 Request} *)
 
 val method_equal : method' -> method' -> bool
@@ -194,7 +191,7 @@ val key : int -> key
 
 val key_to_base64 : key -> string
 val key_of_base64 : string -> (key, string) result
-val encrypt : key -> string -> secret
+val encrypt_base64 : key -> string -> string
 val decrypt_base64 : key -> string -> (string, string) result
 
 (** {1 Session} *)
@@ -208,7 +205,13 @@ val session_find : string -> request -> string option
 val session_all : request -> (string * string) list
 (** [session_all req] returns a list of session objects (key,value). *)
 
-val cookie_session : key -> middleware
+val cookie_session :
+     ?expires:Http_cookie.date_time
+  -> ?max_age:int64 (** Cookie duration in seconds *)
+  -> ?http_only:bool
+  -> cookie_name:string
+  -> key
+  -> middleware
 
 val memory_storage : unit -> memory_storage
 (** [memory_storage ()] is a new {!type:memory_storage}*)
