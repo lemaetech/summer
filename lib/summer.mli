@@ -210,25 +210,24 @@ val session_all : request -> (string * string) list
 
 val cookie_session : key -> middleware
 
-val memory_storage :
+val memory_storage : unit -> memory_storage
+(** [memory_storage ()] is a new {!type:memory_storage}*)
+
+val memory_session :
      ?expires:Http_cookie.date_time
-  -> ?max_age:int64
-  -> ?cookie_name:string
-  -> unit
+  -> ?max_age:int64 (** Cookie duration in seconds *)
+  -> ?http_only:bool
+  -> cookie_name:string
   -> memory_storage
-(** [memory_session ?expires ?max_age ?cookie_name ()] is a new
-    {!type:memory_session}
+  -> middleware
+(** [memory_session ?expires ?max_age ?http_only ~cookie_name memory_storage] is
+    a middleware to handle sessions in back-end server memory. Memory sessions
+    are not persisted in between application restarts.
 
     If neither [expires] or [max_age] is given default session expires when the
-    user closes the browser session.
+    user closes the browser session. If both is given [max_age] take precedent.
 
     [cookie_name] is the name of the session cookie. *)
-
-val memory_session : memory_storage -> middleware
-(** [in_memory memory_session] is a middleware to handle sessions in memory.
-    In-memory sessions are not persisted in between application restarts. *)
-
-(* val cookie_session *)
 
 (** {1 Routing} *)
 

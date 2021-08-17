@@ -48,10 +48,7 @@ and method' = Wtr.method'
 and header = string * string
 (* (name,value) *)
 
-and session =
-  { id: session_id option
-  ; items: session_items
-  ; save: session_items -> unit Lwt.t }
+and session = {items: session_items; save: session_items -> unit Lwt.t}
 
 and session_items = (string, string) Hashtbl.t
 
@@ -70,11 +67,7 @@ and handler = request -> response Lwt.t
 
 and middleware = handler -> handler
 
-and memory_storage =
-  { cookie_name: string
-  ; create_cookie: string -> Http_cookie.t
-        (* creates a session cookie given value. *)
-  ; sessions: (session_id, session_items) Hashtbl.t }
+and memory_storage = (session_id, session_items) Hashtbl.t
 
 and key = Secret.Key.t
 
@@ -502,8 +495,6 @@ let decrypt_base64 = Secret.decrypt_base64
 
 (* Session *)
 
-let default_session_cookie_name = "___session___"
-
 let session_put ~key value request =
   match request.session with
   | Some session ->
@@ -520,50 +511,39 @@ let session_all request =
   | Some session -> Hashtbl.to_seq session.items |> List.of_seq
   | None -> []
 
-let memory_storage ?expires ?max_age
-    ?(cookie_name = default_session_cookie_name) () =
-  let create_cookie value =
-    let cookie =
-      Http_cookie.create ?expires ?max_age ~path:"/" ~domain:"" ~http_only:true
-        ~same_site:`Strict ~name:cookie_name value
-    in
-    match cookie with Ok cookie -> cookie | Error e -> raise (Request_error e)
-  in
-  {create_cookie; sessions= Hashtbl.create 0; cookie_name}
-
+let memory_storage () = Hashtbl.create 0
 let cookie_session _key = failwith ""
 
-let memory_session ms next_handler request =
+let memory_session ?expires ?max_age ?http_only ~cookie_name ms next_handler
+    request =
   let save session_id items =
-    Hashtbl.replace ms.sessions session_id items ;
+    Hashtbl.replace ms session_id items ;
     Lwt.return_unit
   in
-  let request =
-    match find_cookie ms.cookie_name request with
+  let session_id, request =
+    match find_cookie cookie_name request with
     | Some session_cookie ->
         let session_id = Http_cookie.value session_cookie in
         let items =
           Option.value
-            (Hashtbl.find_opt ms.sessions session_id)
+            (Hashtbl.find_opt ms session_id)
             ~default:(Hashtbl.create 0)
         in
-        { request with
-          session= Some {items; save= save session_id; id= Some session_id} }
+        (session_id, {request with session= Some {items; save= save session_id}})
     | None ->
         let session_id = Secret.Key.(create 32 |> to_base64) in
         let items = Hashtbl.create 0 in
-        { request with
-          session= Some {items; save= save session_id; id= Some session_id} }
+        (session_id, {request with session= Some {items; save= save session_id}})
   in
   (* Add session cookie to response *)
   let open Lwt.Syntax in
   let+ response = next_handler request in
-  Option.bind request.session (fun session ->
-      session.id
-      |> Option.map (fun session_id ->
-             let cookie = ms.create_cookie session_id in
-             add_cookie cookie response ) )
-  |> Option.value ~default:response
+  let cookie =
+    Http_cookie.create ?expires ?max_age ?http_only ~same_site:`Strict
+      ~name:cookie_name session_id
+    |> Result.get_ok
+  in
+  add_cookie cookie response
 
 (* Write response *)
 

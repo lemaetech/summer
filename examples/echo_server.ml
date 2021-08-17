@@ -52,7 +52,8 @@ let router =
 
 let app =
   let mem_storage = Summer.memory_storage () in
-  Summer.memory_session mem_storage @@ Summer.router router @@ Summer.not_found
+  Summer.memory_session ~cookie_name:"__session__" mem_storage
+  @@ Summer.router router @@ Summer.not_found
 
 let () =
   let port = ref 3000 in
