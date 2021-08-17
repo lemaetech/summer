@@ -221,8 +221,9 @@ val memory_session :
   -> memory_storage
   -> middleware
 (** [memory_session ?expires ?max_age ?http_only ~cookie_name memory_storage] is
-    a middleware to handle sessions in back-end server memory. Memory sessions
-    are not persisted in between application restarts.
+    a middleware which stores application session data in server memory.
+
+    Memory sessions are not persisted in between application restarts.
 
     If neither [expires] or [max_age] is given default session expires when the
     user closes the browser session. If both is given [max_age] take precedent.
