@@ -12,10 +12,6 @@ module Key : sig
   val to_base64 : t -> string
 end
 
-val nonce_size : int
-(** returns a nonce size (key size) for generating key which in turn can be used
-    for as parameter for {!val:encrypt}/{!val:deccrypt}. *)
-
 val random_bytes : int -> Cstruct.t
 (** [random_bytes sz] returns random bytes of count [sz]. *)
 
