@@ -46,7 +46,10 @@ and handler = request -> response Lwt.t
 
 and middleware = handler -> handler
 
-and memory_session
+and memory_storage
+
+(** A value used for encryption/decryption. *)
+and key
 
 (** {1 Request} *)
 
@@ -181,6 +184,16 @@ val not_found : handler
 val add_header : name:string -> string -> response -> response
 val remove_header : string -> response -> response
 
+(** {1 Encryption/Decryption} *)
+
+val key : int -> key
+(** [key sz] is {!type:key} which has [sz] count of bytes. *)
+
+val key_to_base64 : key -> string
+val key_of_base64 : string -> (key, string) result
+val encrypt_base64 : key -> string -> string
+val decrypt_base64 : key -> string -> (string, string) result
+
 (** {1 Session} *)
 
 val session_put : key:string -> string -> request -> unit Lwt.t
@@ -192,20 +205,36 @@ val session_find : string -> request -> string option
 val session_all : request -> (string * string) list
 (** [session_all req] returns a list of session objects (key,value). *)
 
+val cookie_session :
+     ?expires:Http_cookie.date_time
+  -> ?max_age:int64 (** Cookie duration in seconds *)
+  -> ?http_only:bool
+  -> cookie_name:string
+  -> key
+  -> middleware
+(** [cookie_session ~cookie_name key] is a middleware which stores session data
+    in a browser cookie. The data in the cookie is encrypted and stored in
+    base64 format. [key] is used to encrypt/decrypt the session data. *)
+
+val memory_storage : unit -> memory_storage
+(** [memory_storage ()] is a new {!type:memory_storage}*)
+
 val memory_session :
      ?expires:Http_cookie.date_time
-  -> ?max_age:int
-  -> ?cookie_name:string
-  -> unit
-  -> memory_session
-(** [memory_session] creates a new mession_session for the application.
+  -> ?max_age:int64 (** Cookie duration in seconds *)
+  -> ?http_only:bool
+  -> cookie_name:string
+  -> memory_storage
+  -> middleware
+(** [memory_session ?expires ?max_age ?http_only ~cookie_name memory_storage] is
+    a middleware which stores application session data in server memory.
+
+    Memory sessions are not persisted in between application restarts.
 
     If neither [expires] or [max_age] is given default session expires when the
-    user closes the browser session. *)
+    user closes the browser session. If both is given [max_age] take precedent.
 
-val in_memory : memory_session -> middleware
-(** [in_memory memory_session] is a middleware to handle sessions in memory.
-    In-memory sessions are not persisted in between application restarts. *)
+    [cookie_name] is the name of the session cookie. *)
 
 (** {1 Routing} *)
 

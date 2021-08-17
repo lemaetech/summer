@@ -32,7 +32,7 @@ type request =
   ; headers: (string * string) list
   ; client_addr: string (* IP address of client. *)
   ; fd: Lwt_unix.file_descr
-  ; cookies: Http_cookie.t list Lazy.t
+  ; cookies: Http_cookie.t list
   ; session: session option
   ; mutable unconsumed: Cstruct.t
         (* unconsumed - bytes remaining after request is processed *)
@@ -48,10 +48,7 @@ and method' = Wtr.method'
 and header = string * string
 (* (name,value) *)
 
-and session =
-  { id: session_id option
-  ; items: session_items
-  ; save: session_items -> unit Lwt.t }
+and session = {items: session_items; save: session_items -> unit Lwt.t}
 
 and session_items = (string, string) Hashtbl.t
 
@@ -70,11 +67,9 @@ and handler = request -> response Lwt.t
 
 and middleware = handler -> handler
 
-and memory_session =
-  { cookie_name: string
-  ; create_cookie: string -> Http_cookie.t
-        (* creates a session cookie given value. *)
-  ; sessions: (session_id, session_items) Hashtbl.t }
+and memory_storage = (session_id, session_items) Hashtbl.t
+
+and key = Secret.Key.t
 
 exception Request_error of string
 
@@ -87,7 +82,7 @@ let http_version request = request.http_version
 let headers (request : request) = request.headers
 let client_addr request = request.client_addr
 let content_length request = request.content_length
-let cookies (request : request) = Lazy.force request.cookies
+let cookies (request : request) = request.cookies
 
 let find_cookie cookie_name request =
   List.find_opt
@@ -194,7 +189,8 @@ let request fd unconsumed client_addr =
                   (Format.sprintf "Invalid content-length value: %s" len) ) )
          | None -> return None
        in
-       `Request (meth, request_target, http_version, content_length, headers) )
+       `Request_line
+         (meth, request_target, http_version, content_length, headers) )
       <* crlf
     in
     let eof = end_of_input >>| fun () -> `Connection_closed in
@@ -229,26 +225,28 @@ let request fd unconsumed client_addr =
   match parse_result with
   | Ok (x, unconsumed) -> (
     match x with
-    | `Request (method', target, http_version, content_length, headers) ->
-        let cookies =
-          Lazy.from_fun (fun () ->
-              match List.assoc_opt "cookie" headers with
-              | Some v -> Http_cookie.of_cookie_header v
-              | None -> [] )
-        in
-        `Request
+    | `Request_line (method', target, http_version, content_length, headers)
+      -> (
+        let request =
           { method'
           ; target
           ; http_version
           ; content_length
           ; headers
-          ; cookies
+          ; cookies= []
           ; session= None
           ; client_addr= socketaddr_to_string client_addr
           ; fd
           ; body_read= false
           ; unconsumed
           ; multipart_reader= None }
+        in
+        match List.assoc_opt "cookie" headers with
+        | Some v -> (
+          match Http_cookie.of_cookie v with
+          | Ok cookies -> `Request {request with cookies}
+          | Error e -> `Error e )
+        | None -> `Request request )
     | `Connection_closed -> `Connection_closed )
   | Error x -> `Error x
 
@@ -485,9 +483,15 @@ let router router next_handler request =
   | Some handler -> handler request
   | None -> next_handler request
 
-(* Session *)
+(* Encryption/decryption *)
 
-let default_session_cookie_name = "___session___"
+let key sz = Secret.Key.create sz
+let key_to_base64 = Secret.Key.to_base64
+let key_of_base64 = Secret.Key.of_base64
+let encrypt_base64 = Secret.encrypt_base64
+let decrypt_base64 = Secret.decrypt_base64
+
+(* Session *)
 
 let session_put ~key value request =
   match request.session with
@@ -505,45 +509,97 @@ let session_all request =
   | Some session -> Hashtbl.to_seq session.items |> List.of_seq
   | None -> []
 
-let memory_session ?expires ?max_age
-    ?(cookie_name = default_session_cookie_name) () =
-  let create_cookie value =
-    Http_cookie.create ?expires ?max_age ~path:"/" ~domain:"" ~http_only:true
-      ~same_site:Http_cookie.Same_site.Strict cookie_name ~value
-  in
-  {create_cookie; sessions= Hashtbl.create 0; cookie_name}
+let memory_storage () = Hashtbl.create 0
 
-let in_memory ms next_handler request =
-  let save session_id items =
-    Hashtbl.replace ms.sessions session_id items ;
-    Lwt.return_unit
+let cookie_session ?expires ?max_age ?http_only ~cookie_name key next_handler
+    request =
+  let save _ = Lwt.return_unit in
+  let encode_session_data session_data =
+    Hashtbl.to_seq session_data
+    |> List.of_seq
+    |> List.map (fun (key, value) -> Csexp.(List [Atom key; Atom value]))
+    |> fun l -> Csexp.List l |> Csexp.to_string |> encrypt_base64 key
+  in
+  let decode_session_data session_data =
+    let[@inline] err () = raise (Request_error "Invalid cookie session data") in
+    let csexp =
+      decrypt_base64 key session_data
+      |> function Ok v -> v | Error s -> raise (Request_error s)
+    in
+    let csexp =
+      Csexp.parse_string csexp
+      |> function
+      | Ok v -> v
+      | Error (o, s) ->
+          raise
+            (Request_error
+               (Format.sprintf "Csexp parsing error at offset '%d': %s" o s) )
+    in
+    match csexp with
+    | Csexp.List key_values ->
+        List.map
+          (function
+            | Csexp.(List [Atom key; Atom value]) -> (key, value) | _ -> err ()
+            )
+          key_values
+        |> List.to_seq |> Hashtbl.of_seq
+    | Csexp.Atom _ -> err ()
   in
   let request =
-    match find_cookie ms.cookie_name request with
-    | Some session_cookie ->
-        let session_id = Http_cookie.value session_cookie in
-        let items =
-          Option.value
-            (Hashtbl.find_opt ms.sessions session_id)
-            ~default:(Hashtbl.create 0)
-        in
-        { request with
-          session= Some {items; save= save session_id; id= Some session_id} }
+    match find_cookie cookie_name request with
+    | Some cookie ->
+        let items = decode_session_data (Http_cookie.value cookie) in
+        {request with session= Some {items; save}}
     | None ->
-        let session_id = Secret.Key.(create () |> to_base64) in
         let items = Hashtbl.create 0 in
-        { request with
-          session= Some {items; save= save session_id; id= Some session_id} }
+        {request with session= Some {items; save}}
   in
   (* Add session cookie to response *)
   let open Lwt.Syntax in
   let+ response = next_handler request in
-  Option.bind request.session (fun session ->
-      session.id
-      |> Option.map (fun session_id ->
-             let cookie = ms.create_cookie session_id in
-             add_cookie cookie response ) )
-  |> Option.value ~default:response
+  let session_data =
+    let session = Option.get request.session in
+    encode_session_data session.items
+  in
+  let cookie =
+    Http_cookie.create ?expires ?max_age ?http_only ~same_site:`Strict
+      ~name:cookie_name session_data
+    |> Result.get_ok
+  in
+  add_cookie cookie response
+
+let memory_session ?expires ?max_age ?http_only ~cookie_name ms next_handler
+    request =
+  let save session_id items =
+    Hashtbl.replace ms session_id items ;
+    Lwt.return_unit
+  in
+  let session_id, request =
+    match find_cookie cookie_name request with
+    | Some session_cookie ->
+        let session_id = Http_cookie.value session_cookie in
+        let items =
+          Option.value
+            (Hashtbl.find_opt ms session_id)
+            ~default:(Hashtbl.create 0)
+        in
+        (session_id, {request with session= Some {items; save= save session_id}})
+    | None ->
+        let session_id = Secret.Key.(create 32 |> to_base64) in
+        let items = Hashtbl.create 0 in
+        (session_id, {request with session= Some {items; save= save session_id}})
+  in
+  (* Add session cookie to response *)
+  let open Lwt.Syntax in
+  let+ response = next_handler request in
+  let cookie =
+    Http_cookie.create ?expires ?max_age ?http_only ~same_site:`Strict
+      ~name:cookie_name session_id
+    |> Result.get_ok
+  in
+  add_cookie cookie response
+
+(* Write response *)
 
 module IO_vector = Lwt_unix.IO_vectors
 
@@ -566,9 +622,7 @@ let write_response fd {response_code; headers; body; cookies} =
       let headers =
         Smap.fold
           (fun _cookie_name cookie acc ->
-            Smap.add "set-cookie"
-              (Http_cookie.to_cookie_header_value cookie)
-              acc )
+            Smap.add "set-cookie" (Http_cookie.to_set_cookie cookie) acc )
           cookies headers
       in
       (* Update cache-control header so that we don't cache cookies. *)

@@ -51,8 +51,11 @@ let router =
     ; {%wtr| get     ; /counter             |} counter ]
 
 let app =
-  let session = Summer.memory_session () in
-  Summer.in_memory session @@ Summer.router router @@ Summer.not_found
+  (* let mem_storage = Summer.memory_storage () in *)
+  (* Summer.memory_session ~cookie_name:"__session__" mem_storage *)
+  let key = Summer.key 32 in
+  Summer.cookie_session ~cookie_name:"__ID__" key
+  @@ Summer.router router @@ Summer.not_found
 
 let () =
   let port = ref 3000 in
