@@ -212,6 +212,9 @@ val cookie_session :
   -> cookie_name:string
   -> key
   -> middleware
+(** [cookie_session ~cookie_name key] is a middleware which stores session data
+    in a browser cookie. The data in the cookie is encrypted and stored in
+    base64 format. [key] is used to encrypt/decrypt the session data. *)
 
 val memory_storage : unit -> memory_storage
 (** [memory_storage ()] is a new {!type:memory_storage}*)
