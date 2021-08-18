@@ -52,6 +52,8 @@ and session_data = (string, string) Hashtbl.t
 
 and session_id = string
 
+and memory_storage = (session_id, session_data) Hashtbl.t
+
 type response =
   { response_code: response_code
   ; headers: string Smap.t
@@ -64,8 +66,6 @@ and response_code = int * string
 and handler = request -> response Lwt.t
 
 and middleware = handler -> handler
-
-and memory_storage = (session_id, session_data) Hashtbl.t
 
 and key = Cstruct.t
 
