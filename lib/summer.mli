@@ -61,17 +61,9 @@ val headers : request -> header list
 val client_addr : request -> string
 val content_length : request -> int option
 
-val cookies : request -> Http_cookie.t list
-(** [cookies request] returns a list of cookies in [request]. See
-    {:https://tools.ietf.org/html/rfc6265#section-4.2} *)
-
-val find_cookie : string -> request -> Http_cookie.t option
-(** [find_cookie cookie_name request] is [Some cookie] if
-    [Http_cookie.name = cookie_name], otherwise [None]. *)
-
-val request_header : string -> request -> string option
-(** [request_header header request] returns request header value associated with
-    [header]. *)
+val cookies : request -> (string * Http_cookie.t) list
+(** [cookies request] returns a list of pair [cookie_name * cookie] in
+    [request]. See {:https://tools.ietf.org/html/rfc6265#section-4.2} *)
 
 val body : request -> string Lwt.t
 (** [body request t] returns request body. *)

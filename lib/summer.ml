@@ -82,15 +82,9 @@ let http_version request = request.http_version
 let headers (request : request) = request.headers
 let client_addr request = request.client_addr
 let content_length request = request.content_length
-let cookies (request : request) = request.cookies
 
-let find_cookie cookie_name request =
-  List.find_opt
-    (fun cookie -> String.equal (Http_cookie.name cookie) cookie_name)
-    (cookies request)
-
-let request_header header (request : request) =
-  List.assoc_opt header request.headers
+let cookies (request : request) =
+  request.cookies |> List.map (fun cookie -> (Http_cookie.name cookie, cookie))
 
 let rec pp_request fmt (t : request) =
   let fields =
@@ -582,7 +576,7 @@ let cookie_session ?expires ?max_age ?http_only ~cookie_name key next_handler
     | Csexp.Atom _ -> err ()
   in
   let request =
-    match find_cookie cookie_name request with
+    match List.assoc_opt cookie_name (cookies request) with
     | Some cookie ->
         let items = decode_session_data (Http_cookie.value cookie) in
         {request with session= Some {items; save}}
@@ -611,7 +605,7 @@ let memory_session ?expires ?max_age ?http_only ~cookie_name ms next_handler
     Lwt.return_unit
   in
   let session_id, request =
-    match find_cookie cookie_name request with
+    match List.assoc_opt cookie_name (cookies request) with
     | Some session_cookie ->
         let session_id = Http_cookie.value session_cookie in
         let items =
