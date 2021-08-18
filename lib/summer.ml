@@ -48,7 +48,7 @@ and method' = Wtr.method'
 and header = string * string
 (* (name,value) *)
 
-and session = {items: session_items; save: session_items -> unit Lwt.t}
+and session = {items: session_items; save: session_items -> unit}
 
 and session_items = (string, string) Hashtbl.t
 
@@ -528,7 +528,7 @@ let session_put ~key value request =
   | Some session ->
       Hashtbl.replace session.items key value ;
       session.save session.items
-  | None -> Lwt.return_unit
+  | None -> ()
 
 let session_find key request =
   Option.bind request.session (fun session ->
@@ -543,7 +543,7 @@ let memory_storage () = Hashtbl.create 0
 
 let cookie_session ?expires ?max_age ?http_only ~cookie_name key next_handler
     request =
-  let save _ = Lwt.return_unit in
+  let save _ = () in
   let encode_session_data session_data =
     Hashtbl.to_seq session_data
     |> List.of_seq
@@ -600,10 +600,7 @@ let cookie_session ?expires ?max_age ?http_only ~cookie_name key next_handler
 
 let memory_session ?expires ?max_age ?http_only ~cookie_name ms next_handler
     request =
-  let save session_id items =
-    Hashtbl.replace ms session_id items ;
-    Lwt.return_unit
-  in
+  let save session_id items = Hashtbl.replace ms session_id items in
   let session_id, request =
     match List.assoc_opt cookie_name (cookies request) with
     | Some session_cookie ->

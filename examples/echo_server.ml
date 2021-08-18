@@ -37,7 +37,7 @@ let counter : Summer.handler =
     | Some v -> 1 + int_of_string v
     | None -> 0
   in
-  let* () = Summer.session_put ~key (string_of_int counter) req in
+  Summer.session_put ~key (string_of_int counter) req ;
   html
     (head (title (txt "Summer: Echo App")) [])
     (body [div [txt ("Hello " ^ string_of_int counter ^ "!")]])
