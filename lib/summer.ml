@@ -33,7 +33,7 @@ type request =
   ; client_addr: string (* IP address of client. *)
   ; fd: Lwt_unix.file_descr
   ; cookies: Http_cookie.t list
-  ; session: session option
+  ; session_data: session_data
   ; mutable unconsumed: Cstruct.t
         (* unconsumed - bytes remaining after request is processed *)
   ; mutable body_read: bool
@@ -48,9 +48,7 @@ and method' = Wtr.method'
 and header = string * string
 (* (name,value) *)
 
-and session = {items: session_items; save: session_items -> unit}
-
-and session_items = (string, string) Hashtbl.t
+and session_data = (string, string) Hashtbl.t
 
 and session_id = string
 
@@ -67,7 +65,7 @@ and handler = request -> response Lwt.t
 
 and middleware = handler -> handler
 
-and memory_storage = (session_id, session_items) Hashtbl.t
+and memory_storage = (session_id, session_data) Hashtbl.t
 
 and key = Cstruct.t
 
@@ -228,7 +226,7 @@ let request fd unconsumed client_addr =
           ; content_length
           ; headers
           ; cookies= []
-          ; session= None
+          ; session_data= Hashtbl.create 0
           ; client_addr= socketaddr_to_string client_addr
           ; fd
           ; body_read= false
@@ -524,26 +522,14 @@ let decrypt_base64 key contents =
 (* Session *)
 
 let session_put ~key value request =
-  match request.session with
-  | Some session ->
-      Hashtbl.replace session.items key value ;
-      session.save session.items
-  | None -> ()
+  Hashtbl.replace request.session_data key value
 
-let session_find key request =
-  Option.bind request.session (fun session ->
-      Hashtbl.find_opt session.items key )
-
-let session_all request =
-  match request.session with
-  | Some session -> Hashtbl.to_seq session.items |> List.of_seq
-  | None -> []
-
+let session_find key request = Hashtbl.find_opt request.session_data key
+let session_all request = Hashtbl.to_seq request.session_data |> List.of_seq
 let memory_storage () = Hashtbl.create 0
 
 let cookie_session ?expires ?max_age ?http_only ~cookie_name key next_handler
     request =
-  let save _ = () in
   let encode_session_data session_data =
     Hashtbl.to_seq session_data
     |> List.of_seq
@@ -578,19 +564,14 @@ let cookie_session ?expires ?max_age ?http_only ~cookie_name key next_handler
   let request =
     match List.assoc_opt cookie_name (cookies request) with
     | Some cookie ->
-        let items = decode_session_data (Http_cookie.value cookie) in
-        {request with session= Some {items; save}}
-    | None ->
-        let items = Hashtbl.create 0 in
-        {request with session= Some {items; save}}
+        { request with
+          session_data= decode_session_data (Http_cookie.value cookie) }
+    | None -> {request with session_data= Hashtbl.create 0}
   in
   (* Add session cookie to response *)
   let open Lwt.Syntax in
   let+ response = next_handler request in
-  let session_data =
-    let session = Option.get request.session in
-    encode_session_data session.items
-  in
+  let session_data = encode_session_data request.session_data in
   let cookie =
     Http_cookie.create ?expires ?max_age ?http_only ~same_site:`Strict
       ~name:cookie_name session_data
@@ -600,25 +581,24 @@ let cookie_session ?expires ?max_age ?http_only ~cookie_name key next_handler
 
 let memory_session ?expires ?max_age ?http_only ~cookie_name ms next_handler
     request =
-  let save session_id items = Hashtbl.replace ms session_id items in
   let session_id, request =
     match List.assoc_opt cookie_name (cookies request) with
     | Some session_cookie ->
         let session_id = Http_cookie.value session_cookie in
-        let items =
+        let session_data =
           Option.value
             (Hashtbl.find_opt ms session_id)
             ~default:(Hashtbl.create 0)
         in
-        (session_id, {request with session= Some {items; save= save session_id}})
+        (session_id, {request with session_data})
     | None ->
         let session_id = key_to_base64 @@ key 32 in
-        let items = Hashtbl.create 0 in
-        (session_id, {request with session= Some {items; save= save session_id}})
+        (session_id, {request with session_data= Hashtbl.create 0})
   in
   (* Add session cookie to response *)
   let open Lwt.Syntax in
   let+ response = next_handler request in
+  Hashtbl.replace ms session_id request.session_data ;
   let cookie =
     Http_cookie.create ?expires ?max_age ?http_only ~same_site:`Strict
       ~name:cookie_name session_id
