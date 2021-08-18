@@ -70,7 +70,6 @@ val body : request -> string Lwt.t
 (** {1 Pretty printers} *)
 
 val pp_request : Format.formatter -> request -> unit
-val pp_method : Format.formatter -> method' -> unit
 
 (** {1 Form} *)
 

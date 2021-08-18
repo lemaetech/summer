@@ -85,7 +85,7 @@ let cookies (request : request) =
 
 let rec pp_request fmt (t : request) =
   let fields =
-    [ Fmt.field "meth" (fun p -> p.method') pp_method
+    [ Fmt.field "meth" (fun p -> p.method') Wtr.pp_method
     ; Fmt.field "target" (fun p -> p.target) Fmt.string
     ; Fmt.field "http_version" (fun p -> p.http_version) pp_http_version
     ; Fmt.field "headers" (fun (p : request) -> p.headers) pp_headers ]
@@ -95,8 +95,6 @@ let rec pp_request fmt (t : request) =
 and pp_http_version fmt t =
   let comma' fmt _ = Fmt.string fmt "," in
   Fmt.(pair ~sep:comma' int int) fmt t
-
-and pp_method = Wtr.pp_method
 
 and pp_headers fmt (t : header list) =
   let colon fmt _ = Fmt.string fmt ": " in
