@@ -53,7 +53,6 @@ and key
 
 (** {1 Request} *)
 
-val method_equal : method' -> method' -> bool
 val method' : request -> method'
 val target : request -> string
 val http_version : request -> int * int

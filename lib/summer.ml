@@ -74,7 +74,6 @@ exception Request_error of string
 let io_buffer_size = 65536 (* UNIX_BUFFER_SIZE 4.0.0 *)
 
 let method' request = request.method'
-let method_equal = Wtr.method_equal
 let target request = request.target
 let http_version request = request.http_version
 let headers (request : request) = request.headers
