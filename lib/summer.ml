@@ -69,7 +69,7 @@ and middleware = handler -> handler
 
 and memory_storage = (session_id, session_items) Hashtbl.t
 
-and key = Secret.Key.t
+and key = Cstruct.t
 
 exception Request_error of string
 
@@ -485,11 +485,47 @@ let router router next_handler request =
 
 (* Encryption/decryption *)
 
-let key sz = Secret.Key.create sz
-let key_to_base64 = Secret.Key.to_base64
-let key_of_base64 = Secret.Key.of_base64
-let encrypt_base64 = Secret.encrypt_base64
-let decrypt_base64 = Secret.decrypt_base64
+let initialize_rng = lazy (Mirage_crypto_rng_unix.initialize ())
+let nonce_size = 12
+
+let key sz =
+  Lazy.force initialize_rng ;
+  Mirage_crypto_rng.generate sz
+
+let key_to_base64 key =
+  Cstruct.to_string key
+  |> Base64.(encode_string ~pad:false ~alphabet:uri_safe_alphabet)
+
+let key_of_base64 s =
+  match Base64.(decode ~pad:false ~alphabet:uri_safe_alphabet s) with
+  | Ok s -> Ok (Cstruct.of_string s)
+  | Error (`Msg msg) -> Error msg
+
+let encrypt_base64 key contents =
+  let key = Mirage_crypto.Chacha20.of_secret key in
+  let nonce = Mirage_crypto_rng.generate nonce_size in
+  let encrypted =
+    Mirage_crypto.Chacha20.authenticate_encrypt ~key ~nonce
+      (Cstruct.of_string contents)
+  in
+  Cstruct.concat [nonce; encrypted]
+  |> Cstruct.to_string
+  |> Base64.(encode_string ~pad:false ~alphabet:uri_safe_alphabet)
+
+let decrypt_base64 key contents =
+  try
+    let key = Mirage_crypto.Chacha20.of_secret key in
+    let contents =
+      Base64.(decode_exn ~pad:false ~alphabet:uri_safe_alphabet contents)
+      |> Cstruct.of_string
+    in
+    let nonce = Cstruct.sub contents 0 nonce_size in
+    Cstruct.sub contents nonce_size (Cstruct.length contents - nonce_size)
+    |> Mirage_crypto.Chacha20.authenticate_decrypt ~key ~nonce
+    |> function
+    | Some s -> Ok (Cstruct.to_string s)
+    | None -> Error "Unable to decrypt contents"
+  with exn -> Error (Format.sprintf "%s" (Printexc.to_string exn))
 
 (* Session *)
 
@@ -585,7 +621,7 @@ let memory_session ?expires ?max_age ?http_only ~cookie_name ms next_handler
         in
         (session_id, {request with session= Some {items; save= save session_id}})
     | None ->
-        let session_id = Secret.Key.(create 32 |> to_base64) in
+        let session_id = key_to_base64 @@ key 32 in
         let items = Hashtbl.create 0 in
         (session_id, {request with session= Some {items; save= save session_id}})
   in
