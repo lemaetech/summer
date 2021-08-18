@@ -521,7 +521,7 @@ let decrypt_base64 key contents =
 
 (* Session *)
 
-let session_put ~key value request =
+let session_put request ~key value =
   Hashtbl.replace request.session_data key value
 
 let session_find key request = Hashtbl.find_opt request.session_data key

@@ -188,8 +188,9 @@ val decrypt_base64 : key -> string -> (string, string) result
 
 (** {1 Session} *)
 
-val session_put : key:string -> string -> request -> unit
-(** [session_put ~key value req] stores session [value] corresponding to [key]. *)
+val session_put : request -> key:string -> string -> unit
+(** [session_put request ~key value] stores session [value] corresponding to
+    [key]. *)
 
 val session_find : string -> request -> string option
 (** [session_find key req] returns a session value corresponding to [key]. *)
