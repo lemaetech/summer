@@ -1,4 +1,5 @@
 profile = ocamlformat
+exp-grouping=preserve
 module-item-spacing=compact
 sequence-blank-line=preserve-one
 single-case=compact

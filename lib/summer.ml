@@ -171,12 +171,13 @@ let request fd unconsumed client_addr =
        let* headers = header_fields in
        let+ content_length =
          match List.assoc_opt "content-length" headers with
-         | Some len -> (
+         | Some len -> begin
            try return (Some (int_of_string len))
            with _ ->
              raise
                (Request_error
-                  (Format.sprintf "Invalid content-length value: %s" len) ) )
+                  (Format.sprintf "Invalid content-length value: %s" len) )
+         end
          | None -> return None
        in
        `Request_line
@@ -233,10 +234,11 @@ let request fd unconsumed client_addr =
           ; multipart_reader= None }
         in
         match List.assoc_opt "cookie" headers with
-        | Some v -> (
+        | Some v -> begin
           match Http_cookie.of_cookie v with
           | Ok cookies -> `Request {request with cookies}
-          | Error e -> `Error e )
+          | Error e -> `Error e
+        end
         | None -> `Request request )
     | `Connection_closed -> `Connection_closed )
   | Error x -> `Error x
@@ -551,7 +553,7 @@ let anticsrf ?(protect_http_methods = [`POST; `PUT; `DELETE]) key' next request
       let* anticsrf_tok =
         match List.assoc_opt anticsrf_tokname request.headers with
         | Some anticsrf_tok -> Lwt.return anticsrf_tok
-        | None -> (
+        | None -> begin
             let+ form = form_urlencoded request in
             match List.assoc_opt anticsrf_tokname form with
             | Some [anticsrf_tok] -> anticsrf_tok
@@ -559,7 +561,8 @@ let anticsrf ?(protect_http_methods = [`POST; `PUT; `DELETE]) key' next request
                 raise
                   (Request_error
                      (Format.sprintf "Anti-csrf token %s not found"
-                        anticsrf_tokname ) ) )
+                        anticsrf_tokname ) )
+          end
       in
       let anticsrf_tok = decrypt_base64 key' anticsrf_tok in
       if String.equal anticsrf_tok_cookie anticsrf_tok then Lwt.return request
