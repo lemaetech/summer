@@ -615,8 +615,7 @@ let cookie_session ?expires ?max_age ?http_only ~cookie_name key next_handler
       |> function Ok v -> v | Error s -> raise (Request_error s)
     in
     let csexp =
-      Csexp.parse_string csexp
-      |> function
+      match Csexp.parse_string csexp with
       | Ok v -> v
       | Error (o, s) ->
           raise
