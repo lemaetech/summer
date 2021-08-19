@@ -497,6 +497,7 @@ let key_of_base64 s =
   | Error (`Msg msg) -> Error msg
 
 let encrypt_base64 key contents =
+  assert (String.length contents > 0) ;
   let key = Mirage_crypto.Chacha20.of_secret key in
   let nonce = Mirage_crypto_rng.generate nonce_size in
   let encrypted =
@@ -508,6 +509,7 @@ let encrypt_base64 key contents =
   |> Base64.(encode_string ~pad:false ~alphabet:uri_safe_alphabet)
 
 let decrypt_base64 key contents =
+  assert (String.length contents > 0) ;
   try
     let key = Mirage_crypto.Chacha20.of_secret key in
     let contents =
