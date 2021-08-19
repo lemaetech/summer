@@ -51,8 +51,6 @@ and memory_storage
 (** Encryption/decryption key *)
 and key
 
-and anticsrf_token
-
 (** {1 Request} *)
 
 val method' : request -> method'
@@ -182,14 +180,14 @@ val key : int -> key
 (** [key sz] is {!type:key} which has [sz] count of bytes. *)
 
 val key_to_base64 : key -> string
+val key_to_cstruct : key -> Cstruct.t
 val key_of_base64 : string -> (key, string) result
 val encrypt_base64 : key -> string -> string
 val decrypt_base64 : key -> string -> (string, string) result
 
 (** {1 Anti-CSRF token} *)
 
-val anticsrf_token : key -> anticsrf_token
-val anticsrf_token_to_base64 : anticsrf_token -> string
+val anticsrf_token : key -> string
 
 (** {1 Session} *)
 
