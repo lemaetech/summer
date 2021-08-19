@@ -538,17 +538,17 @@ let anticsrf ?(protect_http_methods = [`POST; `PUT; `DELETE]) ?excluded_routes
      https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html#double-submit-cookie
   *)
   let validate_anticsrf_token () =
-    let is_method_protected =
+    let method_protected =
       List.exists
         (fun method' -> method' = request.method')
         protect_http_methods
     in
-    let is_route_excluded =
+    let route_excluded =
       Option.bind excluded_routes (fun router ->
           Wtr.match' request.method' request.target router )
       |> Option.value ~default:false
     in
-    if is_method_protected && not is_route_excluded then
+    if method_protected && not route_excluded then
       let anticsrf_tok_cookie =
         match List.assoc_opt cookie_name (cookies request) with
         | Some c -> decrypt_base64 key' (Http_cookie.value c)
