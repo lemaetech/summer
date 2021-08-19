@@ -194,7 +194,7 @@ val decrypt_base64 : key -> string -> string
 val anticsrf_token : request -> string
 
 val anticsrf :
-     ?protect_http_methods:method' list
+     ?protected_http_methods:method' list
   -> ?excluded_routes:bool Wtr.t
   -> key
   -> middleware
