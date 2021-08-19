@@ -529,8 +529,8 @@ let decrypt_base64 key contents =
 
 let anticsrf_token request = request.anticsrf_token
 
-let anticsrf ?(protect_http_methods = [`POST; `PUT; `DELETE]) key' next request
-    =
+let anticsrf ?(protect_http_methods = [`POST; `PUT; `DELETE]) ?excluded_routes
+    key' next request =
   let cookie_name = "XSRF-TOKEN" in
   let anticsrf_tokname = "x-xsrf-token" in
   (* Implements double submit anti-csrf mechnism.
@@ -543,7 +543,12 @@ let anticsrf ?(protect_http_methods = [`POST; `PUT; `DELETE]) key' next request
         (fun method' -> method' = request.method')
         protect_http_methods
     in
-    if is_method_protected then
+    let is_route_excluded =
+      Option.bind excluded_routes (fun router ->
+          Wtr.match' request.method' request.target router )
+      |> Option.value ~default:false
+    in
+    if is_method_protected && not is_route_excluded then
       let anticsrf_tok_cookie =
         match List.assoc_opt cookie_name (cookies request) with
         | Some c -> decrypt_base64 key' (Http_cookie.value c)

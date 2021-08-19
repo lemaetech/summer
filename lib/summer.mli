@@ -192,7 +192,12 @@ val decrypt_base64 : key -> string -> string
 (** {1 Anti-CSRF token} *)
 
 val anticsrf_token : request -> string
-val anticsrf : ?protect_http_methods:method' list -> key -> middleware
+
+val anticsrf :
+     ?protect_http_methods:method' list
+  -> ?excluded_routes:bool Wtr.t
+  -> key
+  -> middleware
 
 (** {1 Session} *)
 
