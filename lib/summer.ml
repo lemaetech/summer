@@ -516,9 +516,10 @@ let decrypt_base64 key contents =
     Cstruct.sub contents nonce_size (Cstruct.length contents - nonce_size)
     |> Mirage_crypto.Chacha20.authenticate_decrypt ~key ~nonce
     |> function
-    | Some s -> Ok (Cstruct.to_string s)
-    | None -> Error "Unable to decrypt contents"
-  with exn -> Error (Format.sprintf "%s" (Printexc.to_string exn))
+    | Some s -> Cstruct.to_string s
+    | None -> raise (Request_error "Unable to decrypt contents")
+  with exn ->
+    raise (Request_error (Format.sprintf "%s" (Printexc.to_string exn)))
 
 (* Anti CSRF *)
 
@@ -541,14 +542,7 @@ let anticsrf ?(protect_http_methods = [`POST; `PUT; `DELETE]) key' next request
     if is_method_protected then
       let anticsrf_tok_cookie =
         match List.assoc_opt cookie_name (cookies request) with
-        | Some c -> (
-          match decrypt_base64 key' (Http_cookie.value c) with
-          | Ok anticsrf_tok -> anticsrf_tok
-          | Error e ->
-              raise
-                (Request_error
-                   (Format.sprintf "Error while decrypting anti-csrf cookie: %s"
-                      e ) ) )
+        | Some c -> decrypt_base64 key' (Http_cookie.value c)
         | None ->
             raise
               (Request_error
@@ -567,15 +561,7 @@ let anticsrf ?(protect_http_methods = [`POST; `PUT; `DELETE]) key' next request
                      (Format.sprintf "Anti-csrf token %s not found"
                         anticsrf_tokname ) ) )
       in
-      let anticsrf_tok =
-        match decrypt_base64 key' anticsrf_tok with
-        | Ok anticsrf_tok -> anticsrf_tok
-        | Error e ->
-            raise
-              (Request_error
-                 (Format.sprintf "Error while decrypting anti-csrf token: %s" e)
-              )
-      in
+      let anticsrf_tok = decrypt_base64 key' anticsrf_tok in
       if String.equal anticsrf_tok_cookie anticsrf_tok then Lwt.return request
       else raise (Request_error "Anti-csrf tokens donot match")
     else Lwt.return request
@@ -610,10 +596,7 @@ let cookie_session ?expires ?max_age ?http_only ~cookie_name key next_handler
   in
   let decode_session_data session_data =
     let[@inline] err () = raise (Request_error "Invalid cookie session data") in
-    let csexp =
-      decrypt_base64 key session_data
-      |> function Ok v -> v | Error s -> raise (Request_error s)
-    in
+    let csexp = decrypt_base64 key session_data in
     let csexp =
       match Csexp.parse_string csexp with
       | Ok v -> v

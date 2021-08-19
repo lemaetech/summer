@@ -183,7 +183,11 @@ val key_to_base64 : key -> string
 val key_to_cstruct : key -> Cstruct.t
 val key_of_base64 : string -> (key, string) result
 val encrypt_base64 : key -> string -> string
-val decrypt_base64 : key -> string -> (string, string) result
+
+val decrypt_base64 : key -> string -> string
+(** [decrypt_base64 key contents] decrypts [contents] using [key].
+
+    @raise exn if decryption fails *)
 
 (** {1 Anti-CSRF token} *)
 
