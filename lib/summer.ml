@@ -69,6 +69,8 @@ and middleware = handler -> handler
 
 and key = Cstruct.t
 
+and anticsrf_token = {hmac: string; timestamp: string}
+
 exception Request_error of string
 
 let io_buffer_size = 65536 (* UNIX_BUFFER_SIZE 4.0.0 *)
@@ -515,6 +517,23 @@ let decrypt_base64 key contents =
     | Some s -> Ok (Cstruct.to_string s)
     | None -> Error "Unable to decrypt contents"
   with exn -> Error (Format.sprintf "%s" (Printexc.to_string exn))
+
+let anticsrf_token key =
+  let now = Ptime_clock.now () in
+  let timestamp = Ptime.to_rfc3339 ~space:false ~frac_s:6 now in
+  let hmac =
+    Cstruct.(
+      Mirage_crypto.Hash.SHA256.hmac ~key (of_string timestamp)
+      |> Cstruct.to_string)
+  in
+  {hmac; timestamp}
+
+let anticsrf_token_to_base64 token =
+  String.concat "" [token.hmac; token.timestamp]
+  |> Base64.(encode_string ~pad:false ~alphabet:uri_safe_alphabet)
+
+(* let verify_anticsrf_token key token = *)
+(*   let *)
 
 (* Session *)
 

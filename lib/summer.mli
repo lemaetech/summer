@@ -48,8 +48,10 @@ and middleware = handler -> handler
 
 and memory_storage
 
-(** A value used for encryption/decryption. *)
+(** Encryption/decryption key *)
 and key
+
+and anticsrf_token
 
 (** {1 Request} *)
 
@@ -183,6 +185,11 @@ val key_to_base64 : key -> string
 val key_of_base64 : string -> (key, string) result
 val encrypt_base64 : key -> string -> string
 val decrypt_base64 : key -> string -> (string, string) result
+
+(** {1 Anti-CSRF token} *)
+
+val anticsrf_token : key -> anticsrf_token
+val anticsrf_token_to_base64 : anticsrf_token -> string
 
 (** {1 Session} *)
 
