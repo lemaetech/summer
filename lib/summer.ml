@@ -32,6 +32,7 @@ type request =
   ; headers: (string * string) list
   ; client_addr: string (* IP address of client. *)
   ; fd: Lwt_unix.file_descr
+  ; anticsrf_token: string
   ; cookies: Http_cookie.t list
   ; session_data: session_data
   ; mutable unconsumed: Cstruct.t
@@ -223,6 +224,7 @@ let request fd unconsumed client_addr =
           ; content_length
           ; headers
           ; cookies= []
+          ; anticsrf_token= ""
           ; session_data= Hashtbl.create 0
           ; client_addr= socketaddr_to_string client_addr
           ; fd
@@ -518,11 +520,76 @@ let decrypt_base64 key contents =
     | None -> Error "Unable to decrypt contents"
   with exn -> Error (Format.sprintf "%s" (Printexc.to_string exn))
 
-let anticsrf_token key' =
-  key 32
-  |> Mirage_crypto.Hash.SHA256.hmac ~key:key'
-  |> Cstruct.to_string
-  |> Base64.(encode_string ~pad:false ~alphabet:uri_safe_alphabet)
+(* Anti CSRF *)
+
+let anticsrf_token request = request.anticsrf_token
+
+let anticsrf ?(protect_http_methods = [`POST; `PUT; `DELETE]) key' next request
+    =
+  let cookie_name = "XSRF-TOKEN" in
+  let anticsrf_tokname = "x-xsrf-token" in
+  (* Implements double submit anti-csrf mechnism.
+
+     https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html#double-submit-cookie
+  *)
+  let validate_anticsrf_token () =
+    let is_method_protected =
+      List.exists
+        (fun method' -> method' = request.method')
+        protect_http_methods
+    in
+    if is_method_protected then
+      let anticsrf_tok_cookie =
+        match List.assoc_opt cookie_name (cookies request) with
+        | Some c -> (
+          match decrypt_base64 key' (Http_cookie.value c) with
+          | Ok anticsrf_tok -> anticsrf_tok
+          | Error e ->
+              raise
+                (Request_error
+                   (Format.sprintf "Error while decrypting anti-csrf cookie: %s"
+                      e ) ) )
+        | None ->
+            raise
+              (Request_error
+                 (Format.sprintf "Anti-csrf cookie %s not found" cookie_name) )
+      in
+      let* anticsrf_tok =
+        match List.assoc_opt anticsrf_tokname request.headers with
+        | Some anticsrf_tok -> Lwt.return anticsrf_tok
+        | None -> (
+            let+ form = form_urlencoded request in
+            match List.assoc_opt anticsrf_tokname form with
+            | Some [anticsrf_tok] -> anticsrf_tok
+            | Some _ | None ->
+                raise
+                  (Request_error
+                     (Format.sprintf "Anti-csrf token %s not found"
+                        anticsrf_tokname ) ) )
+      in
+      let anticsrf_tok =
+        match decrypt_base64 key' anticsrf_tok with
+        | Ok anticsrf_tok -> anticsrf_tok
+        | Error e ->
+            raise
+              (Request_error
+                 (Format.sprintf "Error while decrypting anti-csrf token: %s" e)
+              )
+      in
+      if String.equal anticsrf_tok_cookie anticsrf_tok then Lwt.return request
+      else raise (Request_error "Anti-csrf tokens donot match")
+    else Lwt.return request
+  in
+  let* request = validate_anticsrf_token () in
+  let anticsrf_token = key 32 |> Cstruct.to_string |> encrypt_base64 key' in
+  let request = {request with anticsrf_token} in
+  let+ response = next request in
+  let anticsrf_cookie =
+    Http_cookie.create ~http_only:false ~same_site:`Strict ~name:cookie_name
+      anticsrf_token
+    |> Result.get_ok
+  in
+  add_cookie anticsrf_cookie response
 
 (* Session *)
 
