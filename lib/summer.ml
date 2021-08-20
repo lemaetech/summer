@@ -587,7 +587,10 @@ let anticsrf ?(protected_http_methods = [`POST; `PUT; `DELETE]) ?excluded_routes
       ~name:anticsrf_cookie_name anticsrf_token
     |> Result.get_ok
   in
-  Lwt.return @@ add_cookie anticsrf_cookie response
+  Lwt.return
+  @@ { response with
+       cookies= Smap.add anticsrf_cookie_name anticsrf_cookie response.cookies
+     }
 
 (* Session *)
 
@@ -640,7 +643,9 @@ let cookie_session ?expires ?max_age key next_handler request =
       ~name:session_cookie_name session_data
     |> Result.get_ok
   in
-  Lwt.return @@ add_cookie cookie response
+  Lwt.return
+  @@ { response with
+       cookies= Smap.add session_cookie_name cookie response.cookies }
 
 let memory_session ?expires ?max_age ms next_handler request =
   let session_id, request =
@@ -665,7 +670,9 @@ let memory_session ?expires ?max_age ms next_handler request =
       ~name:session_cookie_name session_id
     |> Result.get_ok
   in
-  Lwt.return @@ add_cookie cookie response
+  Lwt.return
+  @@ { response with
+       cookies= Smap.add session_cookie_name cookie response.cookies }
 
 (* Write response *)
 
