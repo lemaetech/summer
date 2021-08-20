@@ -16,7 +16,7 @@ depends: [
   "cstruct" {>= "6.0.1"}
   "tyxml" {>= "4.5.0"}
   "http-multipart-formdata" {>= "2.0.1"}
-  "http-cookie" {>= "3.0.0"}
+  "http-cookie" {>= "4.1.0"}
   "wtr" {>= "2.0.0"}
   "csexp" {>= "1.5.1"}
   "angstrom" {>= "0.15.0"}

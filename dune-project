@@ -32,7 +32,7 @@
   (http-multipart-formdata
    (>= 2.0.1))
   (http-cookie
-   (>= 3.0.0))
+   (>= 4.1.0))
   (wtr
    (>= 2.0.0))
   (csexp
