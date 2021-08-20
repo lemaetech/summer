@@ -572,11 +572,11 @@ let anticsrf ?(protected_http_methods = [`POST; `PUT; `DELETE]) ?excluded_routes
           end
       in
       let anticsrf_tok = decrypt_base64 key' anticsrf_tok in
-      if String.equal anticsrf_tok_cookie anticsrf_tok then Lwt.return request
+      if String.equal anticsrf_tok_cookie anticsrf_tok then Lwt.return ()
       else raise (Request_error "Anti-csrf tokens donot match")
-    else Lwt.return request
+    else Lwt.return ()
   in
-  let* request = validate_anticsrf_token () in
+  let* () = validate_anticsrf_token () in
   let anticsrf_token = key 32 |> Cstruct.to_string |> encrypt_base64 key' in
   let request = {request with anticsrf_token} in
   let+ response = next request in
