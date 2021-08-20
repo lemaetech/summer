@@ -58,6 +58,7 @@ let app =
   (* Summer.memory_session ~cookie_name:"__session__" mem_storage *)
   let key = Summer.key 32 in
   Summer.cookie_session ~cookie_name:"__ID__" key
+  @@ Summer.anticsrf key
   @@ Summer.router router
   @@ Summer.not_found
 

@@ -14,10 +14,12 @@ let _debug_on =
   ref
     ( match String.trim @@ Sys.getenv "HTTP_DBG" with
     | "" -> false
-    | _ -> true
+    | _ ->
+        Printexc.record_backtrace true ;
+        true
     | exception _ -> false )
 
-let _debug k =
+let debug k =
   if !_debug_on then
     k (fun fmt ->
         Printf.kfprintf (fun oc -> Printf.fprintf oc "\n%!") stdout fmt )
@@ -187,14 +189,13 @@ let request fd unconsumed client_addr =
     let eof = end_of_input >>| fun () -> `Connection_closed in
     request' <|> eof
   in
-  let open Lwt.Syntax in
   let rec parse_request parse_state =
     match parse_state with
     | Buffered.Partial k ->
         let unconsumed_length = Cstruct.length unconsumed in
         let len = io_buffer_size - unconsumed_length in
         let buf = Cstruct.create len in
-        let* len' = Lwt_bytes.read fd buf.buffer 0 len in
+        let%lwt len' = Lwt_bytes.read fd buf.buffer 0 len in
         if len' = 0 then parse_request (k `Eof)
         else
           let buf = if len' != len then Cstruct.sub buf 0 len' else buf in
@@ -212,36 +213,38 @@ let request fd unconsumed client_addr =
     | Buffered.Fail (_, marks, err) ->
         Lwt.return (Error (String.concat " > " marks ^ ": " ^ err))
   in
-  let+ parse_result = parse_request (Buffered.parse request_or_eof) in
-  match parse_result with
-  | Ok (x, unconsumed) -> (
-    match x with
-    | `Request_line (method', target, http_version, content_length, headers)
-      -> (
-        let request =
-          { method'
-          ; target
-          ; http_version
-          ; content_length
-          ; headers
-          ; cookies= []
-          ; anticsrf_token= ""
-          ; session_data= Hashtbl.create 0
-          ; client_addr= socketaddr_to_string client_addr
-          ; fd
-          ; body_read= false
-          ; unconsumed
-          ; multipart_reader= None }
-        in
-        match List.assoc_opt "cookie" headers with
-        | Some v -> begin
-          match Http_cookie.of_cookie v with
-          | Ok cookies -> `Request {request with cookies}
-          | Error e -> `Error e
-        end
-        | None -> `Request request )
-    | `Connection_closed -> `Connection_closed )
-  | Error x -> `Error x
+  let%lwt parse_result = parse_request (Buffered.parse request_or_eof) in
+  Lwt.return
+    ( match parse_result with
+    | Ok (x, unconsumed) -> begin
+      match x with
+      | `Request_line (method', target, http_version, content_length, headers)
+        -> (
+          let request =
+            { method'
+            ; target
+            ; http_version
+            ; content_length
+            ; headers
+            ; cookies= []
+            ; anticsrf_token= ""
+            ; session_data= Hashtbl.create 0
+            ; client_addr= socketaddr_to_string client_addr
+            ; fd
+            ; body_read= false
+            ; unconsumed
+            ; multipart_reader= None }
+          in
+          match List.assoc_opt "cookie" headers with
+          | Some v -> begin
+            match Http_cookie.of_cookie v with
+            | Ok cookies -> `Request {request with cookies}
+            | Error e -> `Error e
+          end
+          | None -> `Request request )
+      | `Connection_closed -> `Connection_closed
+    end
+    | Error x -> `Error x )
 
 let body request =
   match content_length request with
@@ -545,7 +548,9 @@ let anticsrf ?(protected_http_methods = [`POST; `PUT; `DELETE]) ?excluded_routes
           Wtr.match' request.method' request.target router )
       |> Option.value ~default:false
     in
-    if method_protected && not route_excluded then
+    if method_protected && not route_excluded then begin
+      debug (fun k -> k "Validating anti-csrf token") ;
+
       let anticsrf_cookie =
         match List.assoc_opt anticsrf_cookie_name (cookies request) with
         | Some c -> decrypt_base64 key' (Http_cookie.value c)
@@ -566,9 +571,12 @@ let anticsrf ?(protected_http_methods = [`POST; `PUT; `DELETE]) ?excluded_routes
       let anticsrf_token = decrypt_base64 key' anticsrf_token in
       if String.equal anticsrf_cookie anticsrf_token then Lwt.return ()
       else request_error "Anti-csrf tokens do not match"
+    end
     else Lwt.return ()
   in
   let%lwt () = validate_anticsrf_token () in
+  debug (fun k -> k "anti-csrf okay") ;
+
   let anticsrf_token = key 32 |> Cstruct.to_string |> encrypt_base64 key' in
   let request = {request with anticsrf_token} in
   let%lwt response = next request in
@@ -624,15 +632,14 @@ let cookie_session ?expires ?max_age ?http_only ~cookie_name key next_handler
     | None -> {request with session_data= Hashtbl.create 0}
   in
   (* Add session cookie to response *)
-  let open Lwt.Syntax in
-  let+ response = next_handler request in
+  let%lwt response = next_handler request in
   let session_data = encode_session_data request.session_data in
   let cookie =
     Http_cookie.create ?expires ?max_age ?http_only ~same_site:`Strict
       ~name:cookie_name session_data
     |> Result.get_ok
   in
-  add_cookie cookie response
+  Lwt.return @@ add_cookie cookie response
 
 let memory_session ?expires ?max_age ?http_only ~cookie_name ms next_handler
     request =
@@ -651,15 +658,14 @@ let memory_session ?expires ?max_age ?http_only ~cookie_name ms next_handler
         (session_id, {request with session_data= Hashtbl.create 0})
   in
   (* Add session cookie to response *)
-  let open Lwt.Syntax in
-  let+ response = next_handler request in
+  let%lwt response = next_handler request in
   Hashtbl.replace ms session_id request.session_data ;
   let cookie =
     Http_cookie.create ?expires ?max_age ?http_only ~same_site:`Strict
       ~name:cookie_name session_id
     |> Result.get_ok
   in
-  add_cookie cookie response
+  Lwt.return @@ add_cookie cookie response
 
 (* Write response *)
 
@@ -720,11 +726,11 @@ let write_response fd {response_code; headers; body; cookies} =
 
 (* Handle request*)
 let rec handle_requests unconsumed handler client_addr fd =
-  _debug (fun k -> k "Waiting for new request ...\n%!") ;
+  debug (fun k -> k "Waiting for new request ...\n%!") ;
   let%lwt request = request fd unconsumed client_addr in
   match request with
   | `Request req -> (
-      _debug (fun k -> k "%s\n%!" (request_to_string req)) ;
+      debug (fun k -> k "%s\n%!" (request_to_string req)) ;
       let%lwt connection_action =
         Lwt.catch
           (fun () ->
@@ -743,10 +749,10 @@ let rec handle_requests unconsumed handler client_addr fd =
             let%lwt () =
               match exn with
               | Request_error error ->
-                  _debug (fun k -> k "Request error: %s" error) ;
+                  debug (fun k -> k "Request error: %s" error) ;
                   write_response fd (response ~response_code:bad_request "")
               | exn ->
-                  _debug (fun k -> k "Exception: %s" (Printexc.to_string exn)) ;
+                  debug (fun k -> k "Exception: %s" (Printexc.to_string exn)) ;
                   write_response fd
                     (response ~response_code:internal_server_error "")
             in
@@ -756,10 +762,10 @@ let rec handle_requests unconsumed handler client_addr fd =
       | `Close_connection -> Lwt_unix.close fd
       | `Next_request -> handle_requests req.unconsumed handler client_addr fd )
   | `Connection_closed ->
-      _debug (fun k -> k "Client closed connection") ;
+      debug (fun k -> k "Client closed connection") ;
       Lwt_unix.close fd
   | `Error e ->
-      _debug (fun k ->
+      debug (fun k ->
           k "Error while parsing request: %s\nClosing connection" e ) ;
       let%lwt () = write_response fd (response ~response_code:bad_request "") in
       Lwt_unix.close fd
