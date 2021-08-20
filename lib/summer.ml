@@ -59,7 +59,7 @@ and memory_storage = (session_id, session_data) Hashtbl.t
 
 type response =
   { response_code: response_code
-  ; headers: string Smap.t
+  ; headers: header list
   ; cookies: Http_cookie.t Smap.t
   ; body: Cstruct.t }
 
@@ -425,8 +425,6 @@ let response_bigstring ?(response_code = ok) ?(headers = []) body =
       List.map
         (fun (name, value) -> (String.lowercase_ascii name, value))
         headers
-      |> List.to_seq
-      |> Smap.of_seq
   ; cookies= Smap.empty
   ; body= Cstruct.of_bigarray body }
 
@@ -465,11 +463,10 @@ let remove_cookie cookie_name response =
   {response with cookies}
 
 let add_header ~name value response =
-  { response with
-    headers= Smap.update name (fun _ -> Some value) response.headers }
+  {response with headers= (name, value) :: response.headers}
 
 let remove_header name response =
-  {response with headers= Smap.remove name response.headers}
+  {response with headers= List.remove_assoc name response.headers}
 
 (* Routing *)
 let router router next_handler request =
@@ -596,8 +593,7 @@ let session_find key request = Hashtbl.find_opt request.session_data key
 let session_all request = Hashtbl.to_seq request.session_data |> List.of_seq
 let memory_storage () = Hashtbl.create 0
 
-let cookie_session ?expires ?max_age ?http_only ~cookie_name key next_handler
-    request =
+let cookie_session ?expires ?max_age ~cookie_name key next_handler request =
   let encode_session_data session_data =
     Hashtbl.to_seq session_data
     |> List.of_seq
@@ -635,14 +631,13 @@ let cookie_session ?expires ?max_age ?http_only ~cookie_name key next_handler
   let%lwt response = next_handler request in
   let session_data = encode_session_data request.session_data in
   let cookie =
-    Http_cookie.create ?expires ?max_age ?http_only ~same_site:`Strict
+    Http_cookie.create ?expires ?max_age ~http_only:true ~same_site:`Strict
       ~name:cookie_name session_data
     |> Result.get_ok
   in
   Lwt.return @@ add_cookie cookie response
 
-let memory_session ?expires ?max_age ?http_only ~cookie_name ms next_handler
-    request =
+let memory_session ?expires ?max_age ~cookie_name ms next_handler request =
   let session_id, request =
     match List.assoc_opt cookie_name (cookies request) with
     | Some session_cookie ->
@@ -661,7 +656,7 @@ let memory_session ?expires ?max_age ?http_only ~cookie_name ms next_handler
   let%lwt response = next_handler request in
   Hashtbl.replace ms session_id request.session_data ;
   let cookie =
-    Http_cookie.create ?expires ?max_age ?http_only ~same_site:`Strict
+    Http_cookie.create ?expires ?max_age ~http_only:true ~same_site:`Strict
       ~name:cookie_name session_id
     |> Result.get_ok
   in
@@ -685,33 +680,37 @@ let write_response fd {response_code; headers; body; cookies} =
   let body_len = Cstruct.length body in
 
   (* Add set-cookie headers if we have cookies. *)
+  debug (fun k -> k "Cookies: %d" (Smap.cardinal cookies)) ;
+
   let headers =
     if Smap.cardinal cookies > 0 then
       let headers =
         Smap.fold
-          (fun _cookie_name cookie acc ->
-            Smap.add "set-cookie" (Http_cookie.to_set_cookie cookie) acc )
+          (fun _cookie_name cookie headers ->
+            ("set-cookie", Http_cookie.to_set_cookie cookie) :: headers )
           cookies headers
       in
       (* Update cache-control header so that we don't cache cookies. *)
       let no_cache = {|no-cache="Set-Cookie"|} in
-      Smap.update "cache-control"
-        (function
-          | Some v -> Some (Format.sprintf "%s, %s" v no_cache)
-          | None -> Some no_cache )
-        headers
+      let cache_control_hdr = "cache-control" in
+      match List.assoc_opt cache_control_hdr headers with
+      | Some hdr_value ->
+          let headers = List.remove_assoc cache_control_hdr headers in
+          (cache_control_hdr, Format.sprintf "%s, %s" hdr_value no_cache)
+          :: headers
+      | None -> (cache_control_hdr, no_cache) :: headers
     else headers
   in
 
   (* Add content-length headers if it doesn't exist. *)
   let headers =
-    if Smap.mem "content-length" headers then headers
-    else Smap.add "content-length" (string_of_int body_len) headers
+    if List.exists (fun (hdr, _) -> hdr = "content-length") headers then headers
+    else ("content-length", string_of_int body_len) :: headers
   in
 
   (* Write response headers. *)
-  Smap.iter
-    (fun name v ->
+  List.iter
+    (fun (name, v) ->
       let buf = Format.sprintf "%s: %s\r\n" name v |> Bytes.unsafe_of_string in
       IO_vector.append_bytes iov buf 0 (Bytes.length buf) )
     headers ;

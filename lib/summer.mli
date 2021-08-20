@@ -214,7 +214,6 @@ val session_all : request -> (string * string) list
 val cookie_session :
      ?expires:Http_cookie.date_time
   -> ?max_age:int64 (** Cookie duration in seconds *)
-  -> ?http_only:bool
   -> cookie_name:string
   -> key
   -> middleware
@@ -228,7 +227,6 @@ val memory_storage : unit -> memory_storage
 val memory_session :
      ?expires:Http_cookie.date_time
   -> ?max_age:int64 (** Cookie duration in seconds *)
-  -> ?http_only:bool
   -> cookie_name:string
   -> memory_storage
   -> middleware
