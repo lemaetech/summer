@@ -529,14 +529,14 @@ let decrypt_base64 key contents =
 
 let anticsrf_token request = request.anticsrf_token
 
+(* Implements double submit anti-csrf technique.
+
+   https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html#double-submit-cookie
+*)
 let anticsrf ?(protected_http_methods = [`POST; `PUT; `DELETE]) ?excluded_routes
     key' next request =
   let anticsrf_cookienm = "XSRF-TOKEN" in
   let anticsrf_tokname = "x-xsrf-token" in
-  (* Implements double submit anti-csrf mechnism.
-
-     https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html#double-submit-cookie
-  *)
   let validate_anticsrf_token () =
     let method_protected =
       List.exists
