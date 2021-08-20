@@ -196,6 +196,8 @@ val anticsrf_token : request -> string
 val anticsrf :
      ?protected_http_methods:method' list
   -> ?excluded_routes:bool Wtr.t
+  -> ?cookie_name:string
+  -> ?token_header_name:string
   -> key
   -> middleware
 
@@ -214,7 +216,7 @@ val session_all : request -> (string * string) list
 val cookie_session :
      ?expires:Http_cookie.date_time
   -> ?max_age:int64 (** Cookie duration in seconds *)
-  -> cookie_name:string
+  -> ?cookie_name:string
   -> key
   -> middleware
 (** [cookie_session ~cookie_name key] is a middleware which stores session data
@@ -227,7 +229,7 @@ val memory_storage : unit -> memory_storage
 val memory_session :
      ?expires:Http_cookie.date_time
   -> ?max_age:int64 (** Cookie duration in seconds *)
-  -> cookie_name:string
+  -> ?cookie_name:string
   -> memory_storage
   -> middleware
 (** [memory_session ?expires ?max_age ?http_only ~cookie_name memory_storage] is

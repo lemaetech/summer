@@ -531,9 +531,8 @@ let anticsrf_token request = request.anticsrf_token
    https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html#double-submit-cookie
 *)
 let anticsrf ?(protected_http_methods = [`POST; `PUT; `DELETE]) ?excluded_routes
-    key' next request =
-  let anticsrf_cookie_name = "XSRF-TOKEN" in
-  let anticsrf_token_name = "x-xsrf-token" in
+    ?(cookie_name = "XSRF-TOKEN") ?(token_header_name = "x-xsrf-token") key'
+    next request =
   let validate_anticsrf_token () =
     let method_protected =
       List.exists
@@ -549,20 +548,19 @@ let anticsrf ?(protected_http_methods = [`POST; `PUT; `DELETE]) ?excluded_routes
       debug (fun k -> k "Validating anti-csrf token") ;
 
       let anticsrf_cookie =
-        match List.assoc_opt anticsrf_cookie_name (cookies request) with
+        match List.assoc_opt cookie_name (cookies request) with
         | Some c -> decrypt_base64 key' (Http_cookie.value c)
-        | None ->
-            request_error "Anti-csrf cookie %s not found" anticsrf_cookie_name
+        | None -> request_error "Anti-csrf cookie %s not found" cookie_name
       in
       let%lwt anticsrf_token =
-        match List.assoc_opt anticsrf_token_name request.headers with
+        match List.assoc_opt token_header_name request.headers with
         | Some anticsrf_tok -> Lwt.return anticsrf_tok
         | None -> begin
             let%lwt form = form_urlencoded request in
-            match List.assoc_opt anticsrf_token_name form with
+            match List.assoc_opt token_header_name form with
             | Some [anticsrf_tok] -> Lwt.return anticsrf_tok
             | Some _ | None ->
-                request_error "Anti-csrf token %s not found" anticsrf_token_name
+                request_error "Anti-csrf token %s not found" token_header_name
           end
       in
       let anticsrf_token = decrypt_base64 key' anticsrf_token in
@@ -578,9 +576,12 @@ let anticsrf ?(protected_http_methods = [`POST; `PUT; `DELETE]) ?excluded_routes
   let request = {request with anticsrf_token} in
   let%lwt response = next request in
   let anticsrf_cookie =
-    Http_cookie.create ~http_only:true ~same_site:`Strict
-      ~name:anticsrf_cookie_name anticsrf_token
-    |> Result.get_ok
+    Http_cookie.create ~http_only:true ~same_site:`Strict ~name:cookie_name
+      anticsrf_token
+    |> function
+    | Ok cookie -> cookie
+    | Error (_ : string) ->
+        request_error "Invalid Anti-csrf cookie name: %s" cookie_name
   in
   Lwt.return @@ add_cookie anticsrf_cookie response
 
@@ -592,8 +593,10 @@ let session_put request ~key value =
 let session_find key request = Hashtbl.find_opt request.session_data key
 let session_all request = Hashtbl.to_seq request.session_data |> List.of_seq
 let memory_storage () = Hashtbl.create 0
+let default_session_cookie_name = "__ID__"
 
-let cookie_session ?expires ?max_age ~cookie_name key next_handler request =
+let cookie_session ?expires ?max_age
+    ?(cookie_name = default_session_cookie_name) key next_handler request =
   let encode_session_data session_data =
     Hashtbl.to_seq session_data
     |> List.of_seq
@@ -633,11 +636,15 @@ let cookie_session ?expires ?max_age ~cookie_name key next_handler request =
   let cookie =
     Http_cookie.create ?expires ?max_age ~http_only:true ~same_site:`Strict
       ~name:cookie_name session_data
-    |> Result.get_ok
+    |> function
+    | Ok cookie -> cookie
+    | Error (_ : string) ->
+        request_error "Invalid session cookie name: %s" cookie_name
   in
   Lwt.return @@ add_cookie cookie response
 
-let memory_session ?expires ?max_age ~cookie_name ms next_handler request =
+let memory_session ?expires ?max_age
+    ?(cookie_name = default_session_cookie_name) ms next_handler request =
   let session_id, request =
     match List.assoc_opt cookie_name (cookies request) with
     | Some session_cookie ->
@@ -658,7 +665,10 @@ let memory_session ?expires ?max_age ~cookie_name ms next_handler request =
   let cookie =
     Http_cookie.create ?expires ?max_age ~http_only:true ~same_site:`Strict
       ~name:cookie_name session_id
-    |> Result.get_ok
+    |> function
+    | Ok cookie -> cookie
+    | Error (_ : string) ->
+        request_error "Invalid session cookie name: %s" cookie_name
   in
   Lwt.return @@ add_cookie cookie response
 
