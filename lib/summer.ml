@@ -549,7 +549,7 @@ let anticsrf ?(protected_http_methods = [`POST; `PUT; `DELETE]) ?excluded_routes
       |> Option.value ~default:false
     in
     if method_protected && not route_excluded then
-      let anticsrf_tok_cookie =
+      let anticsrf_cookie =
         match List.assoc_opt anticsrf_cookie_name (cookies request) with
         | Some c -> decrypt_base64 key' (Http_cookie.value c)
         | None ->
@@ -558,7 +558,7 @@ let anticsrf ?(protected_http_methods = [`POST; `PUT; `DELETE]) ?excluded_routes
                  (Format.sprintf "Anti-csrf cookie %s not found"
                     anticsrf_cookie_name ) )
       in
-      let* anticsrf_tok =
+      let* anticsrf_token =
         match List.assoc_opt anticsrf_token_name request.headers with
         | Some anticsrf_tok -> Lwt.return anticsrf_tok
         | None -> begin
@@ -572,9 +572,9 @@ let anticsrf ?(protected_http_methods = [`POST; `PUT; `DELETE]) ?excluded_routes
                         anticsrf_token_name ) )
           end
       in
-      let anticsrf_tok = decrypt_base64 key' anticsrf_tok in
-      if String.equal anticsrf_tok_cookie anticsrf_tok then Lwt.return ()
-      else raise (Request_error "Anti-csrf tokens donot match")
+      let anticsrf_token = decrypt_base64 key' anticsrf_token in
+      if String.equal anticsrf_cookie anticsrf_token then Lwt.return ()
+      else raise (Request_error "Anti-csrf tokens do not match")
     else Lwt.return ()
   in
   let* () = validate_anticsrf_token () in
