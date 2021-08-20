@@ -72,6 +72,9 @@ and key = Cstruct.t
 
 exception Request_error of string
 
+let request_error fmt =
+  Format.ksprintf (fun err -> raise (Request_error err)) fmt
+
 let io_buffer_size = 65536 (* UNIX_BUFFER_SIZE 4.0.0 *)
 
 let method' request = request.method'
@@ -173,10 +176,7 @@ let request fd unconsumed client_addr =
          match List.assoc_opt "content-length" headers with
          | Some len -> begin
            try return (Some (int_of_string len))
-           with _ ->
-             raise
-               (Request_error
-                  (Format.sprintf "Invalid content-length value: %s" len) )
+           with _ -> request_error "Invalid content-length value: %s" len
          end
          | None -> return None
        in
@@ -274,7 +274,7 @@ let body request =
         ( if unconsumed_length > 0 then Cstruct.append request.unconsumed buf
         else buf )
         |> Cstruct.to_string
-  | None -> raise (Request_error "content-length header not found")
+  | None -> request_error "content-length header not found"
 
 (* Form *)
 let form_multipart ?(body_buffer_size = io_buffer_size) request =
@@ -309,7 +309,7 @@ let form_multipart ?(body_buffer_size = io_buffer_size) request =
           else buf
         in
         parse_part (k (`Cstruct buf))
-    | `Error error -> raise (Request_error error)
+    | `Error error -> request_error "%s" error
   in
   match request.multipart_reader with
   | Some reader -> parse_part (Http_multipart_formdata.read reader)
@@ -319,9 +319,8 @@ let form_multipart ?(body_buffer_size = io_buffer_size) request =
         | Some ct -> (
           match Http_multipart_formdata.boundary ct with
           | Ok boundary -> boundary
-          | Error err -> raise (Request_error err) )
-        | None ->
-            raise (Request_error "[multipart] content-type header not found")
+          | Error err -> request_error "%s" err )
+        | None -> request_error "[multipart] content-type header not found"
       in
       let reader =
         Http_multipart_formdata.reader ~read_buffer_size:body_buffer_size
@@ -338,14 +337,14 @@ let form_multipart_all request =
     | `Header header ->
         let* body = read_body Cstruct.empty in
         read_parts ((header, body) :: parts)
-    | `Error e -> raise (Request_error e)
+    | `Error e -> request_error "%s" e
     | _ -> assert false
   and read_body body =
     form_multipart request
     >>= function
     | `Body_end -> Lwt.return body
     | `Body buf -> read_body (Cstruct.append body buf)
-    | `Error e -> raise (Request_error e)
+    | `Error e -> request_error "%s" e
     | _ -> assert false
   in
   read_parts []
@@ -521,9 +520,8 @@ let decrypt_base64 key contents =
     |> Mirage_crypto.Chacha20.authenticate_decrypt ~key ~nonce
     |> function
     | Some s -> Cstruct.to_string s
-    | None -> raise (Request_error "Unable to decrypt contents")
-  with exn ->
-    raise (Request_error (Format.sprintf "%s" (Printexc.to_string exn)))
+    | None -> request_error "Unable to decrypt contents"
+  with exn -> request_error "%s" (Printexc.to_string exn)
 
 (* Anti CSRF *)
 
@@ -553,10 +551,7 @@ let anticsrf ?(protected_http_methods = [`POST; `PUT; `DELETE]) ?excluded_routes
         match List.assoc_opt anticsrf_cookie_name (cookies request) with
         | Some c -> decrypt_base64 key' (Http_cookie.value c)
         | None ->
-            raise
-              (Request_error
-                 (Format.sprintf "Anti-csrf cookie %s not found"
-                    anticsrf_cookie_name ) )
+            request_error "Anti-csrf cookie %s not found" anticsrf_cookie_name
       in
       let* anticsrf_token =
         match List.assoc_opt anticsrf_token_name request.headers with
@@ -566,15 +561,12 @@ let anticsrf ?(protected_http_methods = [`POST; `PUT; `DELETE]) ?excluded_routes
             match List.assoc_opt anticsrf_token_name form with
             | Some [anticsrf_tok] -> anticsrf_tok
             | Some _ | None ->
-                raise
-                  (Request_error
-                     (Format.sprintf "Anti-csrf token %s not found"
-                        anticsrf_token_name ) )
+                request_error "Anti-csrf token %s not found" anticsrf_token_name
           end
       in
       let anticsrf_token = decrypt_base64 key' anticsrf_token in
       if String.equal anticsrf_cookie anticsrf_token then Lwt.return ()
-      else raise (Request_error "Anti-csrf tokens do not match")
+      else request_error "Anti-csrf tokens do not match"
     else Lwt.return ()
   in
   let* () = validate_anticsrf_token () in
@@ -606,15 +598,13 @@ let cookie_session ?expires ?max_age ?http_only ~cookie_name key next_handler
     |> fun l -> Csexp.List l |> Csexp.to_string |> encrypt_base64 key
   in
   let decode_session_data session_data =
-    let[@inline] err () = raise (Request_error "Invalid cookie session data") in
+    let[@inline] err () = request_error "Invalid cookie session data" in
     let csexp = decrypt_base64 key session_data in
     let csexp =
       match Csexp.parse_string csexp with
       | Ok v -> v
       | Error (o, s) ->
-          raise
-            (Request_error
-               (Format.sprintf "Csexp parsing error at offset '%d': %s" o s) )
+          request_error "Csexp parsing error at offset '%d': %s" o s
     in
     match csexp with
     | Csexp.List key_values ->
