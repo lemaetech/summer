@@ -45,7 +45,6 @@
    (>= 0.8.9))
   (lwt
    (>= 5.4.1))
-  ptime
   (base64
    (>= 3.5.0))
   (mirage-crypto

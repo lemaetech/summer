@@ -18,6 +18,7 @@ depends: [
   "base-bytes" {= "base"}
   "base-threads" {= "base"}
   "base-unix" {= "base"}
+  "base64" {= "3.5.0"}
   "bigarray-compat" {= "1.0.0"}
   "bigstringaf" {= "0.8.0"}
   "cmdliner" {= "1.0.4"}
@@ -32,7 +33,7 @@ depends: [
   "eqaf" {= "0.8"}
   "fmt" {= "0.8.9"}
   "fpath" {= "0.7.3" & with-doc}
-  "http-cookie" {= "3.1.0"}
+  "http-cookie" {= "4.1.0"}
   "http-multipart-formdata" {= "3.0.1"}
   "jane-street-headers" {= "v0.14.0" & with-test}
   "jst-config" {= "v0.14.0" & with-test}
@@ -104,5 +105,5 @@ build: [
 ]
 dev-repo: "git+https://github.com/lemaetech/summer.git"
 pin-depends: [
-  "http-cookie.3.1.0" "git+ssh://git@github.com/lemaetech/http-cookie.git"
+  "http-cookie.4.1.0" "git+ssh://git@github.com/lemaetech/http-cookie.git#master"
 ]
