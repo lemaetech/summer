@@ -531,7 +531,7 @@ let anticsrf_token request = request.anticsrf_token
 
 let anticsrf ?(protected_http_methods = [`POST; `PUT; `DELETE]) ?excluded_routes
     key' next request =
-  let cookie_name = "XSRF-TOKEN" in
+  let anticsrf_cookienm = "XSRF-TOKEN" in
   let anticsrf_tokname = "x-xsrf-token" in
   (* Implements double submit anti-csrf mechnism.
 
@@ -550,12 +550,13 @@ let anticsrf ?(protected_http_methods = [`POST; `PUT; `DELETE]) ?excluded_routes
     in
     if method_protected && not route_excluded then
       let anticsrf_tok_cookie =
-        match List.assoc_opt cookie_name (cookies request) with
+        match List.assoc_opt anticsrf_cookienm (cookies request) with
         | Some c -> decrypt_base64 key' (Http_cookie.value c)
         | None ->
             raise
               (Request_error
-                 (Format.sprintf "Anti-csrf cookie %s not found" cookie_name) )
+                 (Format.sprintf "Anti-csrf cookie %s not found"
+                    anticsrf_cookienm ) )
       in
       let* anticsrf_tok =
         match List.assoc_opt anticsrf_tokname request.headers with
@@ -581,8 +582,8 @@ let anticsrf ?(protected_http_methods = [`POST; `PUT; `DELETE]) ?excluded_routes
   let request = {request with anticsrf_token} in
   let+ response = next request in
   let anticsrf_cookie =
-    Http_cookie.create ~http_only:false ~same_site:`Strict ~name:cookie_name
-      anticsrf_token
+    Http_cookie.create ~http_only:false ~same_site:`Strict
+      ~name:anticsrf_cookienm anticsrf_token
     |> Result.get_ok
   in
   add_cookie anticsrf_cookie response
