@@ -535,8 +535,8 @@ let anticsrf_token request = request.anticsrf_token
 *)
 let anticsrf ?(protected_http_methods = [`POST; `PUT; `DELETE]) ?excluded_routes
     key' next request =
-  let anticsrf_cookienm = "XSRF-TOKEN" in
-  let anticsrf_tokname = "x-xsrf-token" in
+  let anticsrf_cookie_name = "XSRF-TOKEN" in
+  let anticsrf_token_name = "x-xsrf-token" in
   let validate_anticsrf_token () =
     let method_protected =
       List.exists
@@ -550,26 +550,26 @@ let anticsrf ?(protected_http_methods = [`POST; `PUT; `DELETE]) ?excluded_routes
     in
     if method_protected && not route_excluded then
       let anticsrf_tok_cookie =
-        match List.assoc_opt anticsrf_cookienm (cookies request) with
+        match List.assoc_opt anticsrf_cookie_name (cookies request) with
         | Some c -> decrypt_base64 key' (Http_cookie.value c)
         | None ->
             raise
               (Request_error
                  (Format.sprintf "Anti-csrf cookie %s not found"
-                    anticsrf_cookienm ) )
+                    anticsrf_cookie_name ) )
       in
       let* anticsrf_tok =
-        match List.assoc_opt anticsrf_tokname request.headers with
+        match List.assoc_opt anticsrf_token_name request.headers with
         | Some anticsrf_tok -> Lwt.return anticsrf_tok
         | None -> begin
             let+ form = form_urlencoded request in
-            match List.assoc_opt anticsrf_tokname form with
+            match List.assoc_opt anticsrf_token_name form with
             | Some [anticsrf_tok] -> anticsrf_tok
             | Some _ | None ->
                 raise
                   (Request_error
                      (Format.sprintf "Anti-csrf token %s not found"
-                        anticsrf_tokname ) )
+                        anticsrf_token_name ) )
           end
       in
       let anticsrf_tok = decrypt_base64 key' anticsrf_tok in
@@ -583,7 +583,7 @@ let anticsrf ?(protected_http_methods = [`POST; `PUT; `DELETE]) ?excluded_routes
   let+ response = next request in
   let anticsrf_cookie =
     Http_cookie.create ~http_only:true ~same_site:`Strict
-      ~name:anticsrf_cookienm anticsrf_token
+      ~name:anticsrf_cookie_name anticsrf_token
     |> Result.get_ok
   in
   add_cookie anticsrf_cookie response
