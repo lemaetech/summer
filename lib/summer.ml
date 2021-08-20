@@ -14,10 +14,12 @@ let _debug_on =
   ref
     ( match String.trim @@ Sys.getenv "HTTP_DBG" with
     | "" -> false
-    | _ -> true
+    | _ ->
+        Printexc.record_backtrace true ;
+        true
     | exception _ -> false )
 
-let _debug k =
+let debug k =
   if !_debug_on then
     k (fun fmt ->
         Printf.kfprintf (fun oc -> Printf.fprintf oc "\n%!") stdout fmt )
@@ -32,6 +34,7 @@ type request =
   ; headers: (string * string) list
   ; client_addr: string (* IP address of client. *)
   ; fd: Lwt_unix.file_descr
+  ; anticsrf_token: string
   ; cookies: Http_cookie.t list
   ; session_data: session_data
   ; mutable unconsumed: Cstruct.t
@@ -56,7 +59,7 @@ and memory_storage = (session_id, session_data) Hashtbl.t
 
 type response =
   { response_code: response_code
-  ; headers: string Smap.t
+  ; headers: header list
   ; cookies: Http_cookie.t Smap.t
   ; body: Cstruct.t }
 
@@ -70,6 +73,9 @@ and middleware = handler -> handler
 and key = Cstruct.t
 
 exception Request_error of string
+
+let request_error fmt =
+  Format.ksprintf (fun err -> raise (Request_error err)) fmt
 
 let io_buffer_size = 65536 (* UNIX_BUFFER_SIZE 4.0.0 *)
 
@@ -170,12 +176,10 @@ let request fd unconsumed client_addr =
        let* headers = header_fields in
        let+ content_length =
          match List.assoc_opt "content-length" headers with
-         | Some len -> (
+         | Some len -> begin
            try return (Some (int_of_string len))
-           with _ ->
-             raise
-               (Request_error
-                  (Format.sprintf "Invalid content-length value: %s" len) ) )
+           with _ -> request_error "Invalid content-length value: %s" len
+         end
          | None -> return None
        in
        `Request_line
@@ -185,14 +189,13 @@ let request fd unconsumed client_addr =
     let eof = end_of_input >>| fun () -> `Connection_closed in
     request' <|> eof
   in
-  let open Lwt.Syntax in
   let rec parse_request parse_state =
     match parse_state with
     | Buffered.Partial k ->
         let unconsumed_length = Cstruct.length unconsumed in
         let len = io_buffer_size - unconsumed_length in
         let buf = Cstruct.create len in
-        let* len' = Lwt_bytes.read fd buf.buffer 0 len in
+        let%lwt len' = Lwt_bytes.read fd buf.buffer 0 len in
         if len' = 0 then parse_request (k `Eof)
         else
           let buf = if len' != len then Cstruct.sub buf 0 len' else buf in
@@ -210,37 +213,38 @@ let request fd unconsumed client_addr =
     | Buffered.Fail (_, marks, err) ->
         Lwt.return (Error (String.concat " > " marks ^ ": " ^ err))
   in
-  let+ parse_result = parse_request (Buffered.parse request_or_eof) in
-  match parse_result with
-  | Ok (x, unconsumed) -> (
-    match x with
-    | `Request_line (method', target, http_version, content_length, headers)
-      -> (
-        let request =
-          { method'
-          ; target
-          ; http_version
-          ; content_length
-          ; headers
-          ; cookies= []
-          ; session_data= Hashtbl.create 0
-          ; client_addr= socketaddr_to_string client_addr
-          ; fd
-          ; body_read= false
-          ; unconsumed
-          ; multipart_reader= None }
-        in
-        match List.assoc_opt "cookie" headers with
-        | Some v -> (
-          match Http_cookie.of_cookie v with
-          | Ok cookies -> `Request {request with cookies}
-          | Error e -> `Error e )
-        | None -> `Request request )
-    | `Connection_closed -> `Connection_closed )
-  | Error x -> `Error x
-
-open Lwt.Infix
-open Lwt.Syntax
+  let%lwt parse_result = parse_request (Buffered.parse request_or_eof) in
+  Lwt.return
+    ( match parse_result with
+    | Ok (x, unconsumed) -> begin
+      match x with
+      | `Request_line (method', target, http_version, content_length, headers)
+        -> (
+          let request =
+            { method'
+            ; target
+            ; http_version
+            ; content_length
+            ; headers
+            ; cookies= []
+            ; anticsrf_token= ""
+            ; session_data= Hashtbl.create 0
+            ; client_addr= socketaddr_to_string client_addr
+            ; fd
+            ; body_read= false
+            ; unconsumed
+            ; multipart_reader= None }
+          in
+          match List.assoc_opt "cookie" headers with
+          | Some v -> begin
+            match Http_cookie.of_cookie v with
+            | Ok cookies -> `Request {request with cookies}
+            | Error e -> `Error e
+          end
+          | None -> `Request request )
+      | `Connection_closed -> `Connection_closed
+    end
+    | Error x -> `Error x )
 
 let body request =
   match content_length request with
@@ -264,13 +268,14 @@ let body request =
       else
         let sz = content_length - unconsumed_length in
         let buf = Cstruct.create sz in
-        let+ sz' = Lwt_bytes.read request.fd buf.buffer 0 sz in
+        let%lwt sz' = Lwt_bytes.read request.fd buf.buffer 0 sz in
         let buf = if sz' <> sz then Cstruct.sub buf 0 sz' else buf in
         request.body_read <- true ;
         ( if unconsumed_length > 0 then Cstruct.append request.unconsumed buf
         else buf )
         |> Cstruct.to_string
-  | None -> raise (Request_error "content-length header not found")
+        |> Lwt.return
+  | None -> request_error "content-length header not found"
 
 (* Form *)
 let form_multipart ?(body_buffer_size = io_buffer_size) request =
@@ -293,7 +298,7 @@ let form_multipart ?(body_buffer_size = io_buffer_size) request =
     | `Body_end -> Lwt.return `Body_end
     | `Awaiting_input k ->
         let buf = Cstruct.create io_buffer_size in
-        let* len' = Lwt_bytes.read request.fd buf.buffer 0 io_buffer_size in
+        let%lwt len' = Lwt_bytes.read request.fd buf.buffer 0 io_buffer_size in
         let buf =
           if len' <> io_buffer_size then Cstruct.sub buf 0 len' else buf
         in
@@ -305,7 +310,7 @@ let form_multipart ?(body_buffer_size = io_buffer_size) request =
           else buf
         in
         parse_part (k (`Cstruct buf))
-    | `Error error -> raise (Request_error error)
+    | `Error error -> request_error "%s" error
   in
   match request.multipart_reader with
   | Some reader -> parse_part (Http_multipart_formdata.read reader)
@@ -315,9 +320,8 @@ let form_multipart ?(body_buffer_size = io_buffer_size) request =
         | Some ct -> (
           match Http_multipart_formdata.boundary ct with
           | Ok boundary -> boundary
-          | Error err -> raise (Request_error err) )
-        | None ->
-            raise (Request_error "[multipart] content-type header not found")
+          | Error err -> request_error "%s" err )
+        | None -> request_error "[multipart] content-type header not found"
       in
       let reader =
         Http_multipart_formdata.reader ~read_buffer_size:body_buffer_size
@@ -328,20 +332,20 @@ let form_multipart ?(body_buffer_size = io_buffer_size) request =
 
 let form_multipart_all request =
   let rec read_parts parts =
-    form_multipart request
-    >>= function
+    let%lwt part = form_multipart request in
+    match part with
     | `End -> Lwt.return (List.rev parts)
     | `Header header ->
-        let* body = read_body Cstruct.empty in
+        let%lwt body = read_body Cstruct.empty in
         read_parts ((header, body) :: parts)
-    | `Error e -> raise (Request_error e)
+    | `Error e -> request_error "%s" e
     | _ -> assert false
   and read_body body =
-    form_multipart request
-    >>= function
+    let%lwt part = form_multipart request in
+    match part with
     | `Body_end -> Lwt.return body
     | `Body buf -> read_body (Cstruct.append body buf)
-    | `Error e -> raise (Request_error e)
+    | `Error e -> request_error "%s" e
     | _ -> assert false
   in
   read_parts []
@@ -349,8 +353,8 @@ let form_multipart_all request =
 let form_urlencoded (request : request) =
   match List.assoc_opt "content-type" request.headers with
   | Some "application/x-www-form-urlencoded" ->
-      let+ body = body request in
-      if body = "" then [] else Uri.query_of_encoded body
+      let%lwt body = body request in
+      (if body = "" then [] else Uri.query_of_encoded body) |> Lwt.return
   | Some _ | None -> Lwt.return []
 
 (* Response *)
@@ -421,7 +425,6 @@ let response_bigstring ?(response_code = ok) ?(headers = []) body =
       List.map
         (fun (name, value) -> (String.lowercase_ascii name, value))
         headers
-      |> List.to_seq |> Smap.of_seq
   ; cookies= Smap.empty
   ; body= Cstruct.of_bigarray body }
 
@@ -460,11 +463,10 @@ let remove_cookie cookie_name response =
   {response with cookies}
 
 let add_header ~name value response =
-  { response with
-    headers= Smap.update name (fun _ -> Some value) response.headers }
+  {response with headers= (name, value) :: response.headers}
 
 let remove_header name response =
-  {response with headers= Smap.remove name response.headers}
+  {response with headers= List.remove_assoc name response.headers}
 
 (* Routing *)
 let router router next_handler request =
@@ -481,6 +483,8 @@ let key sz =
   Lazy.force initialize_rng ;
   Mirage_crypto_rng.generate sz
 
+external key_to_cstruct : key -> Cstruct.t = "%identity"
+
 let key_to_base64 key =
   Cstruct.to_string key
   |> Base64.(encode_string ~pad:false ~alphabet:uri_safe_alphabet)
@@ -491,6 +495,7 @@ let key_of_base64 s =
   | Error (`Msg msg) -> Error msg
 
 let encrypt_base64 key contents =
+  assert (String.length contents > 0) ;
   let key = Mirage_crypto.Chacha20.of_secret key in
   let nonce = Mirage_crypto_rng.generate nonce_size in
   let encrypted =
@@ -502,6 +507,7 @@ let encrypt_base64 key contents =
   |> Base64.(encode_string ~pad:false ~alphabet:uri_safe_alphabet)
 
 let decrypt_base64 key contents =
+  assert (String.length contents > 0) ;
   try
     let key = Mirage_crypto.Chacha20.of_secret key in
     let contents =
@@ -512,9 +518,72 @@ let decrypt_base64 key contents =
     Cstruct.sub contents nonce_size (Cstruct.length contents - nonce_size)
     |> Mirage_crypto.Chacha20.authenticate_decrypt ~key ~nonce
     |> function
-    | Some s -> Ok (Cstruct.to_string s)
-    | None -> Error "Unable to decrypt contents"
-  with exn -> Error (Format.sprintf "%s" (Printexc.to_string exn))
+    | Some s -> Cstruct.to_string s
+    | None -> request_error "Unable to decrypt contents"
+  with exn -> request_error "Decryption error: %s" (Printexc.to_string exn)
+
+(* Anti CSRF *)
+
+let anticsrf_token request = request.anticsrf_token
+
+(* Implements double submit anti-csrf technique.
+
+   https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html#double-submit-cookie
+*)
+let anticsrf ?(protected_http_methods = [`POST; `PUT; `DELETE]) ?excluded_routes
+    ?(cookie_name = "XSRF-TOKEN") ?(token_header_name = "x-xsrf-token") key'
+    next request =
+  let validate_anticsrf_token () =
+    let method_protected =
+      List.exists
+        (fun method' -> method' = request.method')
+        protected_http_methods
+    in
+    let route_excluded =
+      Option.bind excluded_routes (fun router ->
+          Wtr.match' request.method' request.target router )
+      |> Option.value ~default:false
+    in
+    if method_protected && not route_excluded then begin
+      debug (fun k -> k "Validating anti-csrf token") ;
+
+      let anticsrf_cookie =
+        match List.assoc_opt cookie_name (cookies request) with
+        | Some c -> decrypt_base64 key' (Http_cookie.value c)
+        | None -> request_error "Anti-csrf cookie %s not found" cookie_name
+      in
+      let%lwt anticsrf_token =
+        match List.assoc_opt token_header_name request.headers with
+        | Some anticsrf_tok -> Lwt.return anticsrf_tok
+        | None -> begin
+            let%lwt form = form_urlencoded request in
+            match List.assoc_opt token_header_name form with
+            | Some [anticsrf_tok] -> Lwt.return anticsrf_tok
+            | Some _ | None ->
+                request_error "Anti-csrf token %s not found" token_header_name
+          end
+      in
+      let anticsrf_token = decrypt_base64 key' anticsrf_token in
+      if String.equal anticsrf_cookie anticsrf_token then Lwt.return ()
+      else request_error "Anti-csrf tokens do not match"
+    end
+    else Lwt.return ()
+  in
+  let%lwt () = validate_anticsrf_token () in
+  debug (fun k -> k "Anti-csrf okay") ;
+
+  let anticsrf_token = key 32 |> Cstruct.to_string |> encrypt_base64 key' in
+  let request = {request with anticsrf_token} in
+  let%lwt response = next request in
+  let anticsrf_cookie =
+    Http_cookie.create ~http_only:true ~same_site:`Strict ~name:cookie_name
+      anticsrf_token
+    |> function
+    | Ok cookie -> cookie
+    | Error (_ : string) ->
+        request_error "Invalid Anti-csrf cookie name: %s" cookie_name
+  in
+  Lwt.return @@ add_cookie anticsrf_cookie response
 
 (* Session *)
 
@@ -524,9 +593,10 @@ let session_put request ~key value =
 let session_find key request = Hashtbl.find_opt request.session_data key
 let session_all request = Hashtbl.to_seq request.session_data |> List.of_seq
 let memory_storage () = Hashtbl.create 0
+let default_session_cookie_name = "__ID__"
 
-let cookie_session ?expires ?max_age ?http_only ~cookie_name key next_handler
-    request =
+let cookie_session ?expires ?max_age
+    ?(cookie_name = default_session_cookie_name) key next_handler request =
   let encode_session_data session_data =
     Hashtbl.to_seq session_data
     |> List.of_seq
@@ -534,19 +604,13 @@ let cookie_session ?expires ?max_age ?http_only ~cookie_name key next_handler
     |> fun l -> Csexp.List l |> Csexp.to_string |> encrypt_base64 key
   in
   let decode_session_data session_data =
-    let[@inline] err () = raise (Request_error "Invalid cookie session data") in
+    let[@inline] err () = request_error "Invalid cookie session data" in
+    let csexp = decrypt_base64 key session_data in
     let csexp =
-      decrypt_base64 key session_data
-      |> function Ok v -> v | Error s -> raise (Request_error s)
-    in
-    let csexp =
-      Csexp.parse_string csexp
-      |> function
+      match Csexp.parse_string csexp with
       | Ok v -> v
       | Error (o, s) ->
-          raise
-            (Request_error
-               (Format.sprintf "Csexp parsing error at offset '%d': %s" o s) )
+          request_error "Csexp parsing error at offset '%d': %s" o s
     in
     match csexp with
     | Csexp.List key_values ->
@@ -555,7 +619,8 @@ let cookie_session ?expires ?max_age ?http_only ~cookie_name key next_handler
             | Csexp.(List [Atom key; Atom value]) -> (key, value) | _ -> err ()
             )
           key_values
-        |> List.to_seq |> Hashtbl.of_seq
+        |> List.to_seq
+        |> Hashtbl.of_seq
     | Csexp.Atom _ -> err ()
   in
   let request =
@@ -566,18 +631,20 @@ let cookie_session ?expires ?max_age ?http_only ~cookie_name key next_handler
     | None -> {request with session_data= Hashtbl.create 0}
   in
   (* Add session cookie to response *)
-  let open Lwt.Syntax in
-  let+ response = next_handler request in
+  let%lwt response = next_handler request in
   let session_data = encode_session_data request.session_data in
   let cookie =
-    Http_cookie.create ?expires ?max_age ?http_only ~same_site:`Strict
+    Http_cookie.create ?expires ?max_age ~http_only:true ~same_site:`Strict
       ~name:cookie_name session_data
-    |> Result.get_ok
+    |> function
+    | Ok cookie -> cookie
+    | Error (_ : string) ->
+        request_error "Invalid session cookie name: %s" cookie_name
   in
-  add_cookie cookie response
+  Lwt.return @@ add_cookie cookie response
 
-let memory_session ?expires ?max_age ?http_only ~cookie_name ms next_handler
-    request =
+let memory_session ?expires ?max_age
+    ?(cookie_name = default_session_cookie_name) ms next_handler request =
   let session_id, request =
     match List.assoc_opt cookie_name (cookies request) with
     | Some session_cookie ->
@@ -593,15 +660,17 @@ let memory_session ?expires ?max_age ?http_only ~cookie_name ms next_handler
         (session_id, {request with session_data= Hashtbl.create 0})
   in
   (* Add session cookie to response *)
-  let open Lwt.Syntax in
-  let+ response = next_handler request in
+  let%lwt response = next_handler request in
   Hashtbl.replace ms session_id request.session_data ;
   let cookie =
-    Http_cookie.create ?expires ?max_age ?http_only ~same_site:`Strict
+    Http_cookie.create ?expires ?max_age ~http_only:true ~same_site:`Strict
       ~name:cookie_name session_id
-    |> Result.get_ok
+    |> function
+    | Ok cookie -> cookie
+    | Error (_ : string) ->
+        request_error "Invalid session cookie name: %s" cookie_name
   in
-  add_cookie cookie response
+  Lwt.return @@ add_cookie cookie response
 
 (* Write response *)
 
@@ -625,29 +694,31 @@ let write_response fd {response_code; headers; body; cookies} =
     if Smap.cardinal cookies > 0 then
       let headers =
         Smap.fold
-          (fun _cookie_name cookie acc ->
-            Smap.add "set-cookie" (Http_cookie.to_set_cookie cookie) acc )
+          (fun _cookie_name cookie headers ->
+            ("set-cookie", Http_cookie.to_set_cookie cookie) :: headers )
           cookies headers
       in
       (* Update cache-control header so that we don't cache cookies. *)
       let no_cache = {|no-cache="Set-Cookie"|} in
-      Smap.update "cache-control"
-        (function
-          | Some v -> Some (Format.sprintf "%s, %s" v no_cache)
-          | None -> Some no_cache )
-        headers
+      let cache_control_hdr = "cache-control" in
+      match List.assoc_opt cache_control_hdr headers with
+      | Some hdr_value ->
+          let headers = List.remove_assoc cache_control_hdr headers in
+          (cache_control_hdr, Format.sprintf "%s, %s" hdr_value no_cache)
+          :: headers
+      | None -> (cache_control_hdr, no_cache) :: headers
     else headers
   in
 
   (* Add content-length headers if it doesn't exist. *)
   let headers =
-    if Smap.mem "content-length" headers then headers
-    else Smap.add "content-length" (string_of_int body_len) headers
+    if List.exists (fun (hdr, _) -> hdr = "content-length") headers then headers
+    else ("content-length", string_of_int body_len) :: headers
   in
 
   (* Write response headers. *)
-  Smap.iter
-    (fun name v ->
+  List.iter
+    (fun (name, v) ->
       let buf = Format.sprintf "%s: %s\r\n" name v |> Bytes.unsafe_of_string in
       IO_vector.append_bytes iov buf 0 (Bytes.length buf) )
     headers ;
@@ -657,57 +728,64 @@ let write_response fd {response_code; headers; body; cookies} =
   if body_len > 0 then
     IO_vector.append_bigarray iov (Cstruct.to_bigarray body) 0 body_len ;
 
-  Lwt_unix.writev fd iov >|= fun _ -> ()
+  let%lwt (_ : int) = Lwt_unix.writev fd iov in
+  Lwt.return ()
 
 (* Handle request*)
 let rec handle_requests unconsumed handler client_addr fd =
-  _debug (fun k -> k "Waiting for new request ...\n%!") ;
-  request fd unconsumed client_addr
-  >>= function
+  debug (fun k -> k "Waiting for new request ...\n%!") ;
+  let%lwt request = request fd unconsumed client_addr in
+  match request with
   | `Request req -> (
-      _debug (fun k -> k "%s\n%!" (request_to_string req)) ;
-      Lwt.catch
-        (fun () ->
-          let* response = handler req in
-          write_response fd response
-          >>= fun () ->
-          match List.assoc_opt "Connection" req.headers with
-          | Some "close" -> Lwt.return `Close_connection
-          | Some _ | None ->
-              (* Drain request body content (bytes) from fd before reading a new request
-                 in the same connection. *)
-              if (not req.body_read) && Option.is_some req.content_length then
-                body req >|= fun _ -> `Next_request
-              else Lwt.return `Next_request )
-        (fun exn ->
-          ( match exn with
-          | Request_error error ->
-              _debug (fun k -> k "Request error: %s" error) ;
-              write_response fd (response ~response_code:bad_request "")
-          | exn ->
-              _debug (fun k -> k "Exception: %s" (Printexc.to_string exn)) ;
-              write_response fd
-                (response ~response_code:internal_server_error "") )
-          >|= fun () -> `Close_connection )
-      >>= function
+      debug (fun k -> k "%s\n%!" (request_to_string req)) ;
+      let%lwt connection_action =
+        Lwt.catch
+          (fun () ->
+            let%lwt response = handler req in
+            let%lwt () = write_response fd response in
+            match List.assoc_opt "Connection" req.headers with
+            | Some "close" -> Lwt.return `Close_connection
+            | Some (_ : string) | None ->
+                (* Drain request body content (bytes) from fd before reading a new request
+                   in the same connection. *)
+                if (not req.body_read) && Option.is_some req.content_length then
+                  let%lwt (_ : string) = body req in
+                  Lwt.return `Next_request
+                else Lwt.return `Next_request )
+          (fun exn ->
+            let%lwt () =
+              match exn with
+              | Request_error error ->
+                  debug (fun k -> k "Request error: %s" error) ;
+                  write_response fd (response ~response_code:bad_request "")
+              | exn ->
+                  debug (fun k -> k "Exception: %s" (Printexc.to_string exn)) ;
+                  write_response fd
+                    (response ~response_code:internal_server_error "")
+            in
+            Lwt.return `Close_connection )
+      in
+      match connection_action with
       | `Close_connection -> Lwt_unix.close fd
       | `Next_request -> handle_requests req.unconsumed handler client_addr fd )
   | `Connection_closed ->
-      _debug (fun k -> k "Client closed connection") ;
+      debug (fun k -> k "Client closed connection") ;
       Lwt_unix.close fd
   | `Error e ->
-      _debug (fun k ->
+      debug (fun k ->
           k "Error while parsing request: %s\nClosing connection" e ) ;
-      write_response fd (response ~response_code:bad_request "")
-      >>= fun () -> Lwt_unix.close fd
+      let%lwt () = write_response fd (response ~response_code:bad_request "") in
+      Lwt_unix.close fd
 
 let start ~port request_handler =
   let listen_address = Unix.(ADDR_INET (inet_addr_loopback, port)) in
   Lwt_engine.set (new Lwt_engine.libev ()) ;
   Lwt.async (fun () ->
-      Lwt_io.establish_server_with_client_socket ~backlog:11_000 ~no_close:true
-        listen_address
-        (handle_requests Cstruct.empty request_handler)
-      >>= fun _server -> Lwt.return () ) ;
-  let forever, _ = Lwt.wait () in
+      let%lwt (_ : Lwt_io.server) =
+        Lwt_io.establish_server_with_client_socket ~backlog:11_000
+          ~no_close:true listen_address
+          (handle_requests Cstruct.empty request_handler)
+      in
+      Lwt.return () ) ;
+  let forever, (_ : 'a Lwt.u) = Lwt.wait () in
   Lwt_main.run forever

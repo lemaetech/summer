@@ -48,7 +48,7 @@ and middleware = handler -> handler
 
 and memory_storage
 
-(** A value used for encryption/decryption. *)
+(** Encryption/decryption key *)
 and key
 
 (** {1 Request} *)
@@ -180,9 +180,26 @@ val key : int -> key
 (** [key sz] is {!type:key} which has [sz] count of bytes. *)
 
 val key_to_base64 : key -> string
+val key_to_cstruct : key -> Cstruct.t
 val key_of_base64 : string -> (key, string) result
 val encrypt_base64 : key -> string -> string
-val decrypt_base64 : key -> string -> (string, string) result
+
+val decrypt_base64 : key -> string -> string
+(** [decrypt_base64 key contents] decrypts [contents] using [key].
+
+    @raise exn if decryption fails *)
+
+(** {1 Anti-CSRF token} *)
+
+val anticsrf_token : request -> string
+
+val anticsrf :
+     ?protected_http_methods:method' list
+  -> ?excluded_routes:bool Wtr.t
+  -> ?cookie_name:string
+  -> ?token_header_name:string
+  -> key
+  -> middleware
 
 (** {1 Session} *)
 
@@ -199,8 +216,7 @@ val session_all : request -> (string * string) list
 val cookie_session :
      ?expires:Http_cookie.date_time
   -> ?max_age:int64 (** Cookie duration in seconds *)
-  -> ?http_only:bool
-  -> cookie_name:string
+  -> ?cookie_name:string
   -> key
   -> middleware
 (** [cookie_session ~cookie_name key] is a middleware which stores session data
@@ -213,8 +229,7 @@ val memory_storage : unit -> memory_storage
 val memory_session :
      ?expires:Http_cookie.date_time
   -> ?max_age:int64 (** Cookie duration in seconds *)
-  -> ?http_only:bool
-  -> cookie_name:string
+  -> ?cookie_name:string
   -> memory_storage
   -> middleware
 (** [memory_session ?expires ?max_age ?http_only ~cookie_name memory_storage] is
