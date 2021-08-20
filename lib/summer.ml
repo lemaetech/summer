@@ -777,38 +777,13 @@ let rec handle_requests unconsumed handler client_addr fd =
   debug (fun k -> k "Waiting for new request ...\n%!") ;
   let%lwt request = request fd unconsumed client_addr in
   match request with
-  | `Request req -> (
+  | `Request req -> begin
       debug (fun k -> k "%s\n%!" (request_to_string req)) ;
-      let%lwt connection_action =
-        Lwt.catch
-          (fun () ->
-            let%lwt response = handler req in
-            let%lwt () = write_response fd response in
-            match List.assoc_opt "Connection" req.headers with
-            | Some "close" -> Lwt.return `Close_connection
-            | Some (_ : string) | None ->
-                (* Drain request body content (bytes) from fd before reading a new request
-                   in the same connection. *)
-                if (not req.body_read) && Option.is_some req.content_length then
-                  let%lwt (_ : string) = body req in
-                  Lwt.return `Next_request
-                else Lwt.return `Next_request )
-          (fun exn ->
-            let%lwt () =
-              match exn with
-              | Request_error error ->
-                  debug (fun k -> k "Request error: %s" error) ;
-                  write_response fd (response ~response_code:bad_request "")
-              | exn ->
-                  debug (fun k -> k "Exception: %s" (Printexc.to_string exn)) ;
-                  write_response fd
-                    (response ~response_code:internal_server_error "")
-            in
-            Lwt.return `Close_connection )
-      in
+      let%lwt connection_action = process_request fd handler req in
       match connection_action with
       | `Close_connection -> Lwt_unix.close fd
-      | `Next_request -> handle_requests req.unconsumed handler client_addr fd )
+      | `Next_request -> handle_requests req.unconsumed handler client_addr fd
+    end
   | `Connection_closed ->
       debug (fun k -> k "Client closed connection") ;
       Lwt_unix.close fd
@@ -817,6 +792,31 @@ let rec handle_requests unconsumed handler client_addr fd =
           k "Error while parsing request: %s\nClosing connection" e ) ;
       let%lwt () = write_response fd (response ~response_code:bad_request "") in
       Lwt_unix.close fd
+
+and process_request fd handler (req : request) =
+  try%lwt
+    let%lwt response = handler req in
+    let%lwt () = write_response fd response in
+    match List.assoc_opt "Connection" req.headers with
+    | Some "close" -> Lwt.return `Close_connection
+    | Some (_ : string) | None ->
+        (* Drain request body content (bytes) from fd before reading a new request
+           in the same connection. *)
+        if (not req.body_read) && Option.is_some req.content_length then
+          let%lwt (_ : string) = body req in
+          Lwt.return `Next_request
+        else Lwt.return `Next_request
+  with exn ->
+    let%lwt () =
+      match exn with
+      | Request_error error ->
+          debug (fun k -> k "Request error: %s" error) ;
+          write_response fd (response ~response_code:bad_request "")
+      | exn ->
+          debug (fun k -> k "Exception: %s" (Printexc.to_string exn)) ;
+          write_response fd (response ~response_code:internal_server_error "")
+    in
+    Lwt.return `Close_connection
 
 let start ~port request_handler =
   let listen_address = Unix.(ADDR_INET (inet_addr_loopback, port)) in
