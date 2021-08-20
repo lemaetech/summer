@@ -582,7 +582,7 @@ let anticsrf ?(protected_http_methods = [`POST; `PUT; `DELETE]) ?excluded_routes
   let request = {request with anticsrf_token} in
   let+ response = next request in
   let anticsrf_cookie =
-    Http_cookie.create ~http_only:false ~same_site:`Strict
+    Http_cookie.create ~http_only:true ~same_site:`Strict
       ~name:anticsrf_cookienm anticsrf_token
     |> Result.get_ok
   in
