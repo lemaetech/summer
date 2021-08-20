@@ -708,7 +708,7 @@ let datetime_to_string (tm : Unix.tm) =
     | 11 -> "Dec"
     | _ -> assert false
   in
-  Printf.sprintf "%s, %02d %s %04d %02d:%02d:%02d GMT" weekday tm.tm_mday month
+  Format.sprintf "%s, %02d %s %04d %02d:%02d:%02d GMT" weekday tm.tm_mday month
     (1900 + tm.tm_year) tm.tm_hour tm.tm_min tm.tm_sec
 
 let write_response fd {response_code; headers; body; cookies} =
