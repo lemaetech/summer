@@ -243,9 +243,6 @@ let request fd unconsumed client_addr =
     | `Connection_closed -> `Connection_closed )
   | Error x -> `Error x
 
-open Lwt.Infix
-open Lwt.Syntax
-
 let body request =
   match content_length request with
   | Some content_length ->
@@ -268,12 +265,13 @@ let body request =
       else
         let sz = content_length - unconsumed_length in
         let buf = Cstruct.create sz in
-        let+ sz' = Lwt_bytes.read request.fd buf.buffer 0 sz in
+        let%lwt sz' = Lwt_bytes.read request.fd buf.buffer 0 sz in
         let buf = if sz' <> sz then Cstruct.sub buf 0 sz' else buf in
         request.body_read <- true ;
         ( if unconsumed_length > 0 then Cstruct.append request.unconsumed buf
         else buf )
         |> Cstruct.to_string
+        |> Lwt.return
   | None -> request_error "content-length header not found"
 
 (* Form *)
@@ -297,7 +295,7 @@ let form_multipart ?(body_buffer_size = io_buffer_size) request =
     | `Body_end -> Lwt.return `Body_end
     | `Awaiting_input k ->
         let buf = Cstruct.create io_buffer_size in
-        let* len' = Lwt_bytes.read request.fd buf.buffer 0 io_buffer_size in
+        let%lwt len' = Lwt_bytes.read request.fd buf.buffer 0 io_buffer_size in
         let buf =
           if len' <> io_buffer_size then Cstruct.sub buf 0 len' else buf
         in
@@ -331,17 +329,17 @@ let form_multipart ?(body_buffer_size = io_buffer_size) request =
 
 let form_multipart_all request =
   let rec read_parts parts =
-    form_multipart request
-    >>= function
+    let%lwt part = form_multipart request in
+    match part with
     | `End -> Lwt.return (List.rev parts)
     | `Header header ->
-        let* body = read_body Cstruct.empty in
+        let%lwt body = read_body Cstruct.empty in
         read_parts ((header, body) :: parts)
     | `Error e -> request_error "%s" e
     | _ -> assert false
   and read_body body =
-    form_multipart request
-    >>= function
+    let%lwt part = form_multipart request in
+    match part with
     | `Body_end -> Lwt.return body
     | `Body buf -> read_body (Cstruct.append body buf)
     | `Error e -> request_error "%s" e
@@ -352,8 +350,8 @@ let form_multipart_all request =
 let form_urlencoded (request : request) =
   match List.assoc_opt "content-type" request.headers with
   | Some "application/x-www-form-urlencoded" ->
-      let+ body = body request in
-      if body = "" then [] else Uri.query_of_encoded body
+      let%lwt body = body request in
+      (if body = "" then [] else Uri.query_of_encoded body) |> Lwt.return
   | Some _ | None -> Lwt.return []
 
 (* Response *)
@@ -424,7 +422,8 @@ let response_bigstring ?(response_code = ok) ?(headers = []) body =
       List.map
         (fun (name, value) -> (String.lowercase_ascii name, value))
         headers
-      |> List.to_seq |> Smap.of_seq
+      |> List.to_seq
+      |> Smap.of_seq
   ; cookies= Smap.empty
   ; body= Cstruct.of_bigarray body }
 
@@ -553,13 +552,13 @@ let anticsrf ?(protected_http_methods = [`POST; `PUT; `DELETE]) ?excluded_routes
         | None ->
             request_error "Anti-csrf cookie %s not found" anticsrf_cookie_name
       in
-      let* anticsrf_token =
+      let%lwt anticsrf_token =
         match List.assoc_opt anticsrf_token_name request.headers with
         | Some anticsrf_tok -> Lwt.return anticsrf_tok
         | None -> begin
-            let+ form = form_urlencoded request in
+            let%lwt form = form_urlencoded request in
             match List.assoc_opt anticsrf_token_name form with
-            | Some [anticsrf_tok] -> anticsrf_tok
+            | Some [anticsrf_tok] -> Lwt.return anticsrf_tok
             | Some _ | None ->
                 request_error "Anti-csrf token %s not found" anticsrf_token_name
           end
@@ -569,16 +568,16 @@ let anticsrf ?(protected_http_methods = [`POST; `PUT; `DELETE]) ?excluded_routes
       else request_error "Anti-csrf tokens do not match"
     else Lwt.return ()
   in
-  let* () = validate_anticsrf_token () in
+  let%lwt () = validate_anticsrf_token () in
   let anticsrf_token = key 32 |> Cstruct.to_string |> encrypt_base64 key' in
   let request = {request with anticsrf_token} in
-  let+ response = next request in
+  let%lwt response = next request in
   let anticsrf_cookie =
     Http_cookie.create ~http_only:true ~same_site:`Strict
       ~name:anticsrf_cookie_name anticsrf_token
     |> Result.get_ok
   in
-  add_cookie anticsrf_cookie response
+  Lwt.return @@ add_cookie anticsrf_cookie response
 
 (* Session *)
 
@@ -613,7 +612,8 @@ let cookie_session ?expires ?max_age ?http_only ~cookie_name key next_handler
             | Csexp.(List [Atom key; Atom value]) -> (key, value) | _ -> err ()
             )
           key_values
-        |> List.to_seq |> Hashtbl.of_seq
+        |> List.to_seq
+        |> Hashtbl.of_seq
     | Csexp.Atom _ -> err ()
   in
   let request =
@@ -715,39 +715,44 @@ let write_response fd {response_code; headers; body; cookies} =
   if body_len > 0 then
     IO_vector.append_bigarray iov (Cstruct.to_bigarray body) 0 body_len ;
 
-  Lwt_unix.writev fd iov >|= fun _ -> ()
+  let%lwt (_ : int) = Lwt_unix.writev fd iov in
+  Lwt.return ()
 
 (* Handle request*)
 let rec handle_requests unconsumed handler client_addr fd =
   _debug (fun k -> k "Waiting for new request ...\n%!") ;
-  request fd unconsumed client_addr
-  >>= function
+  let%lwt request = request fd unconsumed client_addr in
+  match request with
   | `Request req -> (
       _debug (fun k -> k "%s\n%!" (request_to_string req)) ;
-      Lwt.catch
-        (fun () ->
-          let* response = handler req in
-          write_response fd response
-          >>= fun () ->
-          match List.assoc_opt "Connection" req.headers with
-          | Some "close" -> Lwt.return `Close_connection
-          | Some _ | None ->
-              (* Drain request body content (bytes) from fd before reading a new request
-                 in the same connection. *)
-              if (not req.body_read) && Option.is_some req.content_length then
-                body req >|= fun _ -> `Next_request
-              else Lwt.return `Next_request )
-        (fun exn ->
-          ( match exn with
-          | Request_error error ->
-              _debug (fun k -> k "Request error: %s" error) ;
-              write_response fd (response ~response_code:bad_request "")
-          | exn ->
-              _debug (fun k -> k "Exception: %s" (Printexc.to_string exn)) ;
-              write_response fd
-                (response ~response_code:internal_server_error "") )
-          >|= fun () -> `Close_connection )
-      >>= function
+      let%lwt connection_action =
+        Lwt.catch
+          (fun () ->
+            let%lwt response = handler req in
+            let%lwt () = write_response fd response in
+            match List.assoc_opt "Connection" req.headers with
+            | Some "close" -> Lwt.return `Close_connection
+            | Some (_ : string) | None ->
+                (* Drain request body content (bytes) from fd before reading a new request
+                   in the same connection. *)
+                if (not req.body_read) && Option.is_some req.content_length then
+                  let%lwt (_ : string) = body req in
+                  Lwt.return `Next_request
+                else Lwt.return `Next_request )
+          (fun exn ->
+            let%lwt () =
+              match exn with
+              | Request_error error ->
+                  _debug (fun k -> k "Request error: %s" error) ;
+                  write_response fd (response ~response_code:bad_request "")
+              | exn ->
+                  _debug (fun k -> k "Exception: %s" (Printexc.to_string exn)) ;
+                  write_response fd
+                    (response ~response_code:internal_server_error "")
+            in
+            Lwt.return `Close_connection )
+      in
+      match connection_action with
       | `Close_connection -> Lwt_unix.close fd
       | `Next_request -> handle_requests req.unconsumed handler client_addr fd )
   | `Connection_closed ->
@@ -756,16 +761,18 @@ let rec handle_requests unconsumed handler client_addr fd =
   | `Error e ->
       _debug (fun k ->
           k "Error while parsing request: %s\nClosing connection" e ) ;
-      write_response fd (response ~response_code:bad_request "")
-      >>= fun () -> Lwt_unix.close fd
+      let%lwt () = write_response fd (response ~response_code:bad_request "") in
+      Lwt_unix.close fd
 
 let start ~port request_handler =
   let listen_address = Unix.(ADDR_INET (inet_addr_loopback, port)) in
   Lwt_engine.set (new Lwt_engine.libev ()) ;
   Lwt.async (fun () ->
-      Lwt_io.establish_server_with_client_socket ~backlog:11_000 ~no_close:true
-        listen_address
-        (handle_requests Cstruct.empty request_handler)
-      >>= fun _server -> Lwt.return () ) ;
-  let forever, _ = Lwt.wait () in
+      let%lwt (_ : Lwt_io.server) =
+        Lwt_io.establish_server_with_client_socket ~backlog:11_000
+          ~no_close:true listen_address
+          (handle_requests Cstruct.empty request_handler)
+      in
+      Lwt.return () ) ;
+  let forever, (_ : 'a Lwt.u) = Lwt.wait () in
   Lwt_main.run forever

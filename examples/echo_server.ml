@@ -15,7 +15,8 @@ let about _req =
   html
     (head (title (txt "Summer: Echo App")) [])
     (body [div [txt "About page"]])
-  |> Summer.tyxml |> Lwt.return
+  |> Summer.tyxml
+  |> Lwt.return
 
 let echo req =
   let+ body =
@@ -27,7 +28,8 @@ let say_hello name _req =
   html
     (head (title (txt "Summer: Echo App")) [])
     (body [div [txt ("Hello " ^ name ^ "!")]])
-  |> Summer.tyxml |> Lwt.return
+  |> Summer.tyxml
+  |> Lwt.return
 
 let counter : Summer.handler =
  fun req ->
@@ -41,7 +43,8 @@ let counter : Summer.handler =
   html
     (head (title (txt "Summer: Echo App")) [])
     (body [div [txt ("Hello " ^ string_of_int counter ^ "!")]])
-  |> Summer.tyxml |> Lwt.return
+  |> Summer.tyxml
+  |> Lwt.return
 
 let router =
   Wtr.create
@@ -55,7 +58,8 @@ let app =
   (* Summer.memory_session ~cookie_name:"__session__" mem_storage *)
   let key = Summer.key 32 in
   Summer.cookie_session ~cookie_name:"__ID__" key
-  @@ Summer.router router @@ Summer.not_found
+  @@ Summer.router router
+  @@ Summer.not_found
 
 let () =
   let port = ref 3000 in

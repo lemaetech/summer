@@ -17,4 +17,6 @@
   fmt
   base64
   mirage-crypto
-  mirage-crypto-rng.unix))
+  mirage-crypto-rng.unix)
+ (preprocess
+  (pps lwt_ppx)))
