@@ -570,7 +570,7 @@ let anticsrf ?(protected_http_methods = [`POST; `PUT; `DELETE]) ?excluded_routes
     else Lwt.return ()
   in
   let%lwt () = validate_anticsrf_token () in
-  debug (fun k -> k "anti-csrf okay") ;
+  debug (fun k -> k "Anti-csrf okay") ;
 
   let anticsrf_token = key 32 |> Cstruct.to_string |> encrypt_base64 key' in
   let request = {request with anticsrf_token} in
@@ -690,8 +690,6 @@ let write_response fd {response_code; headers; body; cookies} =
   let body_len = Cstruct.length body in
 
   (* Add set-cookie headers if we have cookies. *)
-  debug (fun k -> k "Cookies: %d" (Smap.cardinal cookies)) ;
-
   let headers =
     if Smap.cardinal cookies > 0 then
       let headers =
