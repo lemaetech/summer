@@ -795,15 +795,13 @@ and process_request fd handler (req : request) =
   try%lwt
     let%lwt response = handler req in
     let%lwt () = write_response fd response in
-    match List.assoc_opt "Connection" req.headers with
-    | Some "close" -> Lwt.return `Close_connection
-    | Some (_ : string) | None ->
-        (* Drain request body content (bytes) from fd before reading a new request
-           in the same connection. *)
-        if (not req.body_read) && Option.is_some req.content_length then
-          let%lwt (_ : string) = body req in
-          Lwt.return `Next_request
-        else Lwt.return `Next_request
+
+    (* Drain request body content (bytes) from fd before reading a new request
+       in the same connection. *)
+    if (not req.body_read) && Option.is_some req.content_length then
+      let%lwt (_ : string) = body req in
+      Lwt.return `Next_request
+    else Lwt.return `Next_request
   with exn ->
     let%lwt () =
       match exn with
