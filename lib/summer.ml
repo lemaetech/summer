@@ -352,7 +352,13 @@ let form_multipart_all request =
     | `Error e -> request_error "%s" e
     | _ -> assert false
   in
-  read_parts []
+  let%lwt parts = read_parts [] in
+  List.map
+    (fun (header, body) ->
+      let field_name = Http_multipart_formdata.name header in
+      (field_name, (header, body)) )
+    parts
+  |> Lwt.return
 
 let form_urlencoded (request : request) =
   match List.assoc_opt "content-type" request.headers with
@@ -533,6 +539,11 @@ let decrypt_base64 key contents =
 
 let anticsrf_token request = request.anticsrf_token
 
+let if_none : (unit -> 'a option Lwt.t) -> 'a option Lwt.t -> 'a option Lwt.t =
+ fun f opt ->
+  let%lwt opt = opt in
+  match opt with Some _ as x -> Lwt.return x | None -> f ()
+
 (* Implements double submit anti-csrf technique.
 
    https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html#double-submit-cookie
@@ -559,16 +570,31 @@ let anticsrf ?(protected_http_methods = [`POST; `PUT; `DELETE]) ?excluded_routes
         | None ->
             request_error "Anti-csrf cookie %s not found" anticsrf_cookie_name
       in
+      (* Finding anti-csrf token:
+         1. First we see if request header has anticsrf header
+         2. If not then attempt to find anticsrf token in urlencoded form
+         3. Then try the multipart form
+      *)
       let%lwt anticsrf_token =
-        match List.assoc_opt anticsrf_token_name request.headers with
-        | Some anticsrf_tok -> Lwt.return anticsrf_tok
-        | None -> begin
-            let%lwt form = form_urlencoded request in
-            match List.assoc_opt anticsrf_token_name form with
-            | Some [anticsrf_tok] -> Lwt.return anticsrf_tok
-            | Some _ | None ->
-                request_error "Anti-csrf token %s not found" anticsrf_token_name
-          end
+        List.assoc_opt anticsrf_token_name request.headers
+        |> Lwt.return
+        |> if_none (fun () ->
+               let%lwt form = form_urlencoded request in
+               match List.assoc_opt anticsrf_token_name form with
+               | Some [anticsrf_tok] -> Lwt.return (Some anticsrf_tok)
+               | Some _ | None -> Lwt.return None )
+        |> if_none (fun () ->
+               let%lwt form = form_multipart_all request in
+               match List.assoc_opt anticsrf_token_name form with
+               | Some (_, anticsrf_tok) ->
+                   Cstruct.to_string anticsrf_tok |> Option.some |> Lwt.return
+               | None -> Lwt.return None )
+      in
+      let anticsrf_token =
+        match anticsrf_token with
+        | Some tok -> tok
+        | None ->
+            request_error "Anti-csrf token %s not found" anticsrf_token_name
       in
       let anticsrf_token = decrypt_base64 key' anticsrf_token in
       if String.equal anticsrf_cookie anticsrf_token then Lwt.return ()

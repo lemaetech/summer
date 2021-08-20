@@ -95,10 +95,11 @@ val form_multipart :
     returns [400 Bad request] response. *)
 
 val form_multipart_all :
-  request -> (Http_multipart_formdata.part_header * Cstruct.t) list Lwt.t
+     request
+  -> (string * (Http_multipart_formdata.part_header * Cstruct.t)) list Lwt.t
 (** [multipart_all request] is a non streaming version of {!val:multipart}. It
-    returns a list of multipart tuples - (part_header, body) - where each tuple
-    represents a multipart part. *)
+    returns a list of multipart tuples as [(field_name, (part_header, body))] -
+    where each tuple represents a multipart part. *)
 
 val form_urlencoded : request -> (string * string list) list Lwt.t
 (** Returns a list of [name, value list] pairs from form data encoded in
