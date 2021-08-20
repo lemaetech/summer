@@ -521,7 +521,7 @@ let decrypt_base64 key contents =
     |> function
     | Some s -> Cstruct.to_string s
     | None -> request_error "Unable to decrypt contents"
-  with exn -> raise exn
+  with exn -> request_error "Decryption error: %s" (Printexc.to_string exn)
 
 (* Anti CSRF *)
 
