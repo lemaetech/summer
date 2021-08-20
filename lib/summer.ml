@@ -722,8 +722,6 @@ let write_response fd {response_code; headers; body; cookies} =
   in
   IO_vector.append_bytes iov status_line 0 (Bytes.length status_line) ;
 
-  let body_len = Cstruct.length body in
-
   (* Add set-cookie headers if we have cookies. *)
   let headers =
     if Smap.cardinal cookies > 0 then
@@ -744,6 +742,8 @@ let write_response fd {response_code; headers; body; cookies} =
       | None -> (cache_control_hdr, no_cache) :: headers
     else headers
   in
+
+  let body_len = Cstruct.length body in
 
   (* Add content-length headers if it doesn't exist. *)
   let headers =
