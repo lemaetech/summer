@@ -795,7 +795,6 @@ and process_request fd handler (req : request) =
   try%lwt
     let%lwt response = handler req in
     let%lwt () = write_response fd response in
-
     (* Drain request body content (bytes) from fd before reading a new request
        in the same connection. *)
     if (not req.body_read) && Option.is_some req.content_length then
