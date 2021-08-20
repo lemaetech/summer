@@ -784,9 +784,7 @@ let rec handle_requests unconsumed handler client_addr fd =
       | `Close_connection -> Lwt_unix.close fd
       | `Next_request -> handle_requests req.unconsumed handler client_addr fd
     end
-  | `Connection_closed ->
-      debug (fun k -> k "Client closed connection") ;
-      Lwt_unix.close fd
+  | `Connection_closed -> Lwt_unix.close fd
   | `Error e ->
       debug (fun k ->
           k "Error while parsing request: %s\nClosing connection" e ) ;
