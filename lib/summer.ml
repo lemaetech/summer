@@ -678,6 +678,39 @@ let memory_session ?expires ?max_age ms next_handler request =
 
 module IO_vector = Lwt_unix.IO_vectors
 
+(** [to_rfc1123 t] converts [t] to a string in a format as defined by RFC 1123. *)
+let datetime_to_string (tm : Unix.tm) =
+  let weekday =
+    match tm.tm_wday with
+    | 0 -> "Sun"
+    | 1 -> "Mon"
+    | 2 -> "Tue"
+    | 3 -> "Wed"
+    | 4 -> "Thu"
+    | 5 -> "Fri"
+    | 6 -> "Sat"
+    | 7 -> "Sun"
+    | _ -> assert false
+  in
+  let month =
+    match tm.tm_mon with
+    | 0 -> "Jan"
+    | 1 -> "Feb"
+    | 2 -> "Mar"
+    | 3 -> "Apr"
+    | 4 -> "May"
+    | 5 -> "Jun"
+    | 6 -> "Jul"
+    | 7 -> "Aug"
+    | 8 -> "Sep"
+    | 9 -> "Oct"
+    | 10 -> "Nov"
+    | 11 -> "Dec"
+    | _ -> assert false
+  in
+  Printf.sprintf "%s, %02d %s %04d %02d:%02d:%02d GMT" weekday tm.tm_mday month
+    (1900 + tm.tm_year) tm.tm_hour tm.tm_min tm.tm_sec
+
 let write_response fd {response_code; headers; body; cookies} =
   let iov = IO_vector.create () in
 
@@ -716,6 +749,12 @@ let write_response fd {response_code; headers; body; cookies} =
   let headers =
     if List.exists (fun (hdr, _) -> hdr = "content-length") headers then headers
     else ("content-length", string_of_int body_len) :: headers
+  in
+
+  (* Add Date header. *)
+  let headers =
+    if List.exists (fun (hdr, _) -> hdr = "date") headers then headers
+    else ("date", datetime_to_string @@ Unix.(time () |> gmtime)) :: headers
   in
 
   (* Write response headers. *)
