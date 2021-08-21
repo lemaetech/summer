@@ -38,13 +38,7 @@ type request =
   ; cookies: Http_cookie.t list Lazy.t
   ; session_data: session_data
   ; mutable body: string Lwt.t Lazy.t
-  ; mutable multipart_all:
-      ( Http_multipart_formdata.field_name
-      * (Http_multipart_formdata.part_header * Http_multipart_formdata.part_body)
-      )
-      list
-      Lwt.t
-      Lazy.t
+  ; mutable multipart_all: multipart_all Lazy.t
   ; mutable unconsumed: Cstruct.t
         (* unconsumed - bytes remaining after request is processed *)
   ; mutable body_read: bool
@@ -52,6 +46,12 @@ type request =
              to determine if the connection socket needs to be drained before
              reading another request in the same connection. *)
   ; mutable multipart_reader: Http_multipart_formdata.reader option }
+
+and multipart_all =
+  ( Http_multipart_formdata.field_name
+  * (Http_multipart_formdata.part_header * Http_multipart_formdata.part_body) )
+  list
+  Lwt.t
 
 (* https://datatracker.ietf.org/doc/html/rfc7231#section-4 *)
 and method' = Wtr.method'
