@@ -65,7 +65,10 @@ val cookies : request -> (string * Http_cookie.t) list
     [request]. See {:https://tools.ietf.org/html/rfc6265#section-4.2} *)
 
 val body : request -> string Lwt.t
-(** [body request t] returns request body. *)
+(** [body request] reads request body content.
+
+    Returns an empty string if request body is already read. This is usually the
+    case when {!val:form_multipart} is called first before [body] is called. *)
 
 (** {1 Pretty printers} *)
 
