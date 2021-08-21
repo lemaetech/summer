@@ -177,9 +177,40 @@ let socketaddr_to_string = function
 let request fd unconsumed client_addr =
   let request_or_eof =
     let request' =
-      (let* meth, request_target, http_version = request_line in
+      (let* method', target, http_version = request_line in
        let+ headers = header_fields in
-       `Request_line (meth, request_target, http_version, headers) )
+       let content_length =
+         match List.assoc_opt "content-length" headers with
+         | Some len -> begin
+           try Some (int_of_string len)
+           with _ -> request_error "Invalid content-length value: %s" len
+         end
+         | None -> None
+       in
+       let request =
+         { method'
+         ; target
+         ; http_version
+         ; content_length
+         ; headers
+         ; cookies=
+             lazy
+               ( match List.assoc_opt "cookie" headers with
+               | Some v -> begin
+                 match Http_cookie.of_cookie v with
+                 | Ok cookies -> cookies
+                 | Error e -> request_error "%s" e
+               end
+               | None -> [] )
+         ; anticsrf_token= ""
+         ; session_data= Hashtbl.create 0
+         ; client_addr= socketaddr_to_string client_addr
+         ; fd
+         ; body_read= false
+         ; unconsumed
+         ; multipart_reader= None }
+       in
+       `Request request )
       <* crlf
     in
     let eof = end_of_input >>| fun () -> `Connection_closed in
@@ -204,51 +235,16 @@ let request fd unconsumed client_addr =
         let unconsumed =
           if len > 0 then Cstruct.of_bigarray ~off ~len buf else Cstruct.empty
         in
-        Lwt.return (Ok (x, unconsumed))
+        Lwt.return
+          ( match x with
+          | `Request req ->
+              req.unconsumed <- unconsumed ;
+              `Request req
+          | x -> x )
     | Buffered.Fail (_, marks, err) ->
-        Lwt.return (Error (String.concat " > " marks ^ ": " ^ err))
+        Lwt.return (`Error (String.concat " > " marks ^ ": " ^ err))
   in
-  let%lwt parse_result = parse_request (Buffered.parse request_or_eof) in
-  ( match parse_result with
-  | Ok (x, unconsumed) -> begin
-    match x with
-    | `Request_line (method', target, http_version, headers) ->
-        let content_length =
-          match List.assoc_opt "content-length" headers with
-          | Some len -> begin
-            try Some (int_of_string len)
-            with _ -> request_error "Invalid content-length value: %s" len
-          end
-          | None -> None
-        in
-        let request =
-          { method'
-          ; target
-          ; http_version
-          ; content_length
-          ; headers
-          ; cookies=
-              lazy
-                ( match List.assoc_opt "cookie" headers with
-                | Some v -> begin
-                  match Http_cookie.of_cookie v with
-                  | Ok cookies -> cookies
-                  | Error e -> request_error "%s" e
-                end
-                | None -> [] )
-          ; anticsrf_token= ""
-          ; session_data= Hashtbl.create 0
-          ; client_addr= socketaddr_to_string client_addr
-          ; fd
-          ; body_read= false
-          ; unconsumed
-          ; multipart_reader= None }
-        in
-        `Request request
-    | `Connection_closed -> `Connection_closed
-  end
-  | Error x -> `Error x )
-  |> Lwt.return
+  parse_request (Buffered.parse request_or_eof)
 
 let body request =
   match content_length request with
