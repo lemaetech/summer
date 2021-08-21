@@ -37,6 +37,14 @@ type request =
   ; anticsrf_token: string
   ; cookies: Http_cookie.t list Lazy.t
   ; session_data: session_data
+  ; mutable body: string Lwt.t Lazy.t
+  ; mutable multipart_all:
+      ( Http_multipart_formdata.field_name
+      * (Http_multipart_formdata.part_header * Http_multipart_formdata.part_body)
+      )
+      list
+      Lwt.t
+      Lazy.t
   ; mutable unconsumed: Cstruct.t
         (* unconsumed - bytes remaining after request is processed *)
   ; mutable body_read: bool
@@ -89,6 +97,7 @@ let http_version request = request.http_version
 let headers (request : request) = request.headers
 let client_addr request = request.client_addr
 let content_length request = request.content_length
+let body (request : request) = Lazy.force request.body
 
 let cookies (request : request) =
   Lazy.force request.cookies
@@ -174,7 +183,7 @@ let socketaddr_to_string = function
   | Unix.ADDR_INET (inet, port) ->
       Format.sprintf "%s:%d" (Unix.string_of_inet_addr inet) port
 
-let request fd unconsumed client_addr =
+let rec request fd unconsumed client_addr =
   let request_or_eof =
     let request' =
       (let* method', target, http_version = request_line in
@@ -206,6 +215,8 @@ let request fd unconsumed client_addr =
          ; session_data= Hashtbl.create 0
          ; client_addr= socketaddr_to_string client_addr
          ; fd
+         ; body= lazy (Lwt.return "")
+         ; multipart_all= lazy (Lwt.return [])
          ; body_read= false
          ; unconsumed
          ; multipart_reader= None }
@@ -237,7 +248,9 @@ let request fd unconsumed client_addr =
         in
         Lwt.return
           ( match x with
-          | `Request req ->
+          | `Request (req : request) ->
+              req.body <- lazy (read_body req) ;
+              req.multipart_all <- lazy (read_multipart_all req) ;
               req.unconsumed <- unconsumed ;
               `Request req
           | x -> x )
@@ -246,7 +259,7 @@ let request fd unconsumed client_addr =
   in
   parse_request (Buffered.parse request_or_eof)
 
-let body request =
+and read_body request =
   match content_length request with
   | Some content_length ->
       let unconsumed_length = Cstruct.length request.unconsumed in
@@ -276,6 +289,20 @@ let body request =
         |> Cstruct.to_string
         |> Lwt.return
   | None -> request_error "content-length header not found"
+
+and read_multipart_all (request : request) =
+  let boundary =
+    match List.assoc_opt "content-type" request.headers with
+    | Some ct -> (
+      match Http_multipart_formdata.boundary ct with
+      | Ok boundary -> boundary
+      | Error err -> request_error "%s" err )
+    | None -> request_error "[multipart] content-type header not found"
+  in
+  let%lwt body = body request in
+  match Http_multipart_formdata.parts boundary body with
+  | Ok x -> Lwt.return x
+  | Error e -> request_error "form_multipart_all error: %s" e
 
 (* Form *)
 let form_multipart ?(body_buffer_size = io_buffer_size) request =
@@ -330,36 +357,12 @@ let form_multipart ?(body_buffer_size = io_buffer_size) request =
       request.multipart_reader <- Some reader ;
       parse_part (Http_multipart_formdata.read reader)
 
-let form_multipart_all request =
-  let rec read_parts parts =
-    let%lwt part = form_multipart request in
-    match part with
-    | `End -> Lwt.return (List.rev parts)
-    | `Header header ->
-        let%lwt body = read_body Cstruct.empty in
-        read_parts ((header, body) :: parts)
-    | `Error e -> request_error "%s" e
-    | _ -> assert false
-  and read_body body =
-    let%lwt part = form_multipart request in
-    match part with
-    | `Body_end -> Lwt.return body
-    | `Body buf -> read_body (Cstruct.append body buf)
-    | `Error e -> request_error "%s" e
-    | _ -> assert false
-  in
-  let%lwt parts = read_parts [] in
-  List.map
-    (fun (header, body) ->
-      let field_name = Http_multipart_formdata.name header in
-      (field_name, (header, body)) )
-    parts
-  |> Lwt.return
+let form_multipart_all request = Lazy.force request.multipart_all
 
 let form_urlencoded (request : request) =
   match List.assoc_opt "content-type" request.headers with
   | Some "application/x-www-form-urlencoded" ->
-      let%lwt body = body request in
+      let%lwt body = read_body request in
       (if body = "" then [] else Uri.query_of_encoded body) |> Lwt.return
   | Some _ | None -> Lwt.return []
 
@@ -570,6 +573,7 @@ let anticsrf ?(protected_http_methods = [`POST; `PUT; `DELETE]) ?excluded_routes
          1. First we see if request header has anticsrf header
          2. If not then attempt to find anticsrf token in urlencoded form
          3. Then try the multipart form
+         4. Throw error
       *)
       let%lwt anticsrf_token =
         List.assoc_opt anticsrf_token_name request.headers
@@ -582,8 +586,7 @@ let anticsrf ?(protected_http_methods = [`POST; `PUT; `DELETE]) ?excluded_routes
         |> if_none (fun () ->
                let%lwt form = form_multipart_all request in
                match List.assoc_opt anticsrf_token_name form with
-               | Some (_, anticsrf_tok) ->
-                   Cstruct.to_string anticsrf_tok |> Option.some |> Lwt.return
+               | Some (_, anticsrf_tok) -> Lwt.return (Some anticsrf_tok)
                | None -> Lwt.return None )
       in
       let anticsrf_token =
@@ -820,7 +823,7 @@ and process_request fd handler (req : request) =
     (* Drain request body content (bytes) from fd before reading a new request
        in the same connection. *)
     if (not req.body_read) && Option.is_some req.content_length then
-      let%lwt (_ : string) = body req in
+      let%lwt (_ : string) = read_body req in
       Lwt.return `Next_request
     else Lwt.return `Next_request
   with exn ->
