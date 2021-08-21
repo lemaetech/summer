@@ -76,7 +76,7 @@ val pp_request : Format.formatter -> request -> unit
 
 (** {1 Form} *)
 
-val form_multipart :
+val multipart :
      ?body_buffer_size:int
   -> request
   -> [ `End  (** Reading of multipart form is complete. *)
@@ -97,7 +97,7 @@ val form_multipart :
     If the request is an invalid [multipart/formdata] content-type then it
     returns [400 Bad request] response. *)
 
-val form_multipart_all :
+val multipart_all :
      request
   -> ( Http_multipart_formdata.field_name
      * (Http_multipart_formdata.part_header * Http_multipart_formdata.part_body)

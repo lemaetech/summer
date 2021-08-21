@@ -305,7 +305,7 @@ and read_multipart_all (request : request) =
   | Error e -> request_error "form_multipart_all error: %s" e
 
 (* Form *)
-let form_multipart ?(body_buffer_size = io_buffer_size) request =
+let multipart ?(body_buffer_size = io_buffer_size) request =
   let body_buffer_size =
     if body_buffer_size > io_buffer_size then io_buffer_size
     else body_buffer_size
@@ -357,7 +357,7 @@ let form_multipart ?(body_buffer_size = io_buffer_size) request =
       request.multipart_reader <- Some reader ;
       parse_part (Http_multipart_formdata.read reader)
 
-let form_multipart_all request = Lazy.force request.multipart_all
+let multipart_all request = Lazy.force request.multipart_all
 
 let form_urlencoded (request : request) =
   match List.assoc_opt "content-type" request.headers with
@@ -584,7 +584,7 @@ let anticsrf ?(protected_http_methods = [`POST; `PUT; `DELETE]) ?excluded_routes
                | Some [anticsrf_tok] -> Lwt.return (Some anticsrf_tok)
                | Some _ | None -> Lwt.return None )
         |> if_none (fun () ->
-               let%lwt form = form_multipart_all request in
+               let%lwt form = multipart_all request in
                match List.assoc_opt anticsrf_token_name form with
                | Some (_, anticsrf_tok) -> Lwt.return (Some anticsrf_tok)
                | None -> Lwt.return None )
