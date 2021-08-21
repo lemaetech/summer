@@ -188,19 +188,17 @@ let rec request fd unconsumed client_addr =
     let request' =
       (let* method', target, http_version = request_line in
        let+ headers = header_fields in
-       let content_length =
-         match List.assoc_opt "content-length" headers with
-         | Some len -> begin
-           try Some (int_of_string len)
-           with _ -> request_error "Invalid content-length value: %s" len
-         end
-         | None -> None
-       in
        let request =
          { method'
          ; target
          ; http_version
-         ; content_length
+         ; content_length=
+             ( match List.assoc_opt "content-length" headers with
+             | Some len -> begin
+               try Some (int_of_string len)
+               with _ -> request_error "Invalid content-length value: %s" len
+             end
+             | None -> None )
          ; headers
          ; cookies=
              lazy
