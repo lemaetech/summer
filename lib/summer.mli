@@ -96,7 +96,11 @@ val form_multipart :
 
 val form_multipart_all :
      request
-  -> (string * (Http_multipart_formdata.part_header * Cstruct.t)) list Lwt.t
+  -> ( Http_multipart_formdata.field_name
+     * (Http_multipart_formdata.part_header * Http_multipart_formdata.part_body)
+     )
+     list
+     Lwt.t
 (** [multipart_all request] is a non streaming version of {!val:multipart}. It
     returns a list of multipart tuples as [(field_name, (part_header, body))] -
     where each tuple represents a multipart part. *)
