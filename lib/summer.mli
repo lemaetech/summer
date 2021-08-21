@@ -207,6 +207,8 @@ val anticsrf :
   -> key
   -> middleware
 
+val validate_anticsrf_token : key -> string -> request -> unit Lwt.t
+
 (** {1 Session} *)
 
 val session_put : request -> key:string -> string -> unit

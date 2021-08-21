@@ -541,6 +541,15 @@ let if_none : (unit -> 'a option Lwt.t) -> 'a option Lwt.t -> 'a option Lwt.t =
   let%lwt opt = opt in
   match opt with Some _ as x -> Lwt.return x | None -> f ()
 
+let validate_anticsrf_token key anticsrf_token request =
+  let anticsrf_cookie =
+    match List.assoc_opt anticsrf_cookie_name (cookies request) with
+    | Some c -> decrypt_base64 key (Http_cookie.value c)
+    | None -> request_error "Anti-csrf cookie %s not found" anticsrf_cookie_name
+  in
+  if String.equal anticsrf_cookie anticsrf_token then Lwt.return ()
+  else request_error "Anti-csrf tokens do not match"
+
 (* Implements double submit anti-csrf technique.
 
    https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html#double-submit-cookie
@@ -561,12 +570,6 @@ let anticsrf ?(protected_http_methods = [`POST; `PUT; `DELETE]) ?excluded_routes
     if method_protected && not route_excluded then begin
       debug (fun k -> k "Validating anti-csrf token") ;
 
-      let anticsrf_cookie =
-        match List.assoc_opt anticsrf_cookie_name (cookies request) with
-        | Some c -> decrypt_base64 key' (Http_cookie.value c)
-        | None ->
-            request_error "Anti-csrf cookie %s not found" anticsrf_cookie_name
-      in
       (* Finding anti-csrf token:
          1. First we see if request header has anticsrf header
          2. If not then attempt to find anticsrf token in urlencoded form
@@ -594,8 +597,7 @@ let anticsrf ?(protected_http_methods = [`POST; `PUT; `DELETE]) ?excluded_routes
             request_error "Anti-csrf token %s not found" anticsrf_token_name
       in
       let anticsrf_token = decrypt_base64 key' anticsrf_token in
-      if String.equal anticsrf_cookie anticsrf_token then Lwt.return ()
-      else request_error "Anti-csrf tokens do not match"
+      validate_anticsrf_token key' anticsrf_token request
     end
     else Lwt.return ()
   in
