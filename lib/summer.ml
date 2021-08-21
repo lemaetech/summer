@@ -556,7 +556,7 @@ let validate_anticsrf_token key anticsrf_token request =
 *)
 let anticsrf ?(protected_http_methods = [`POST; `PUT; `DELETE]) ?excluded_routes
     key' next request =
-  let validate_anticsrf_token () =
+  let validate () =
     let method_protected =
       List.exists
         (fun method' -> method' = request.method')
@@ -601,7 +601,7 @@ let anticsrf ?(protected_http_methods = [`POST; `PUT; `DELETE]) ?excluded_routes
     end
     else Lwt.return ()
   in
-  let%lwt () = validate_anticsrf_token () in
+  let%lwt () = validate () in
   debug (fun k -> k "Anti-csrf okay") ;
 
   let anticsrf_token = key 32 |> Cstruct.to_string |> encrypt_base64 key' in
