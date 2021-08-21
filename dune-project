@@ -30,9 +30,9 @@
   (tyxml
    (>= 4.5.0))
   (http-multipart-formdata
-   (>= 2.0.1))
+   (>= 3.1.0))
   (http-cookie
-   (>= 4.1.0))
+   (>= 4.2.0))
   (wtr
    (>= 2.0.0))
   (csexp
