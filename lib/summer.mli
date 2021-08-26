@@ -175,8 +175,6 @@ val remove_cookie : string -> response -> response
 (** [remove_cookie cookie_name response] removes cookie with [cookie_name] from
     response if it exists. *)
 
-val not_found : handler
-
 (** {2 Headers} *)
 
 val add_header : name:string -> string -> response -> response
@@ -251,6 +249,20 @@ val memory_session :
 (** {1 Routing} *)
 
 val router : handler Wtr.t -> middleware
+
+(** {1 Handlers} *)
+
+val files : ?dir_path:string -> handler
+(** [files ~dir_path:"public"] is a handler that responds to requests for static
+    file resources in [dir_path]. The default value of [dir_path] is the current
+    working directory of the executable.
+
+    Static file resources are files in the filesystem, such as .html, .jpg,
+    .png, .js files. *)
+
+val not_found : handler
+
+(** {1 Start} *)
 
 val start : port:int -> handler -> unit
 (** [start port request_handler] Starts HTTP/1.1 server at [port]. *)

@@ -473,16 +473,11 @@ let remove_cookie cookie_name response =
   {response with cookies}
 
 let add_header ~name value response =
-  {response with headers= (name, value) :: response.headers}
+  { response with
+    headers= (String.lowercase_ascii name, value) :: response.headers }
 
 let remove_header name response =
   {response with headers= List.remove_assoc name response.headers}
-
-(* Routing *)
-let router router next_handler request =
-  match Wtr.match' request.method' request.target router with
-  | Some handler -> handler request
-  | None -> next_handler request
 
 (* Encryption/decryption *)
 
@@ -694,6 +689,19 @@ let memory_session ?expires ?max_age ms next_handler request =
   in
   {response with cookies= Smap.add session_cookie_name cookie response.cookies}
   |> Lwt.return
+
+(* Routing *)
+
+let router router next_handler request =
+  match Wtr.match' request.method' request.target router with
+  | Some handler -> handler request
+  | None -> next_handler request
+
+(* Files Middleware *)
+
+let files ?(dir_path = "./") _req =
+  let _ = dir_path in
+  failwith ""
 
 (* Write response *)
 
