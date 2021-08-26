@@ -666,9 +666,8 @@ let cookie_session ?expires ?max_age key next_handler request =
       ~name:session_cookie_name session_data
     |> Result.get_ok
   in
-  Lwt.return
-  @@ { response with
-       cookies= Smap.add session_cookie_name cookie response.cookies }
+  {response with cookies= Smap.add session_cookie_name cookie response.cookies}
+  |> Lwt.return
 
 let memory_session ?expires ?max_age ms next_handler request =
   let session_id, request =
@@ -693,9 +692,8 @@ let memory_session ?expires ?max_age ms next_handler request =
       ~name:session_cookie_name session_id
     |> Result.get_ok
   in
-  Lwt.return
-  @@ { response with
-       cookies= Smap.add session_cookie_name cookie response.cookies }
+  {response with cookies= Smap.add session_cookie_name cookie response.cookies}
+  |> Lwt.return
 
 (* Write response *)
 
