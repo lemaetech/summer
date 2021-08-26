@@ -602,8 +602,7 @@ let anticsrf ?(protected_http_methods = [`POST; `PUT; `DELETE]) ?excluded_routes
     else Lwt.return ()
   in
   let%lwt () = validate () in
-  debug (fun k -> k "Anti-csrf okay") ;
-
+  debug (fun k -> k "Anti-csrf token validated") ;
   let anticsrf_token = key 32 |> Cstruct.to_string |> encrypt_base64 key' in
   let request = {request with anticsrf_token} in
   let%lwt response = next request in
@@ -612,10 +611,9 @@ let anticsrf ?(protected_http_methods = [`POST; `PUT; `DELETE]) ?excluded_routes
       ~name:anticsrf_cookie_name anticsrf_token
     |> Result.get_ok
   in
-  Lwt.return
-  @@ { response with
-       cookies= Smap.add anticsrf_cookie_name anticsrf_cookie response.cookies
-     }
+  { response with
+    cookies= Smap.add anticsrf_cookie_name anticsrf_cookie response.cookies }
+  |> Lwt.return
 
 (* Session *)
 
