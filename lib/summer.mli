@@ -201,7 +201,7 @@ val anticsrf_token : request -> string
 
 val anticsrf :
      ?protected_http_methods:method' list
-  -> ?excluded_routes:bool Wtr.t
+  -> ?excluded_routes:bool Wtr.router
   -> key
   -> middleware
 
@@ -248,7 +248,7 @@ val memory_session :
 
 (** {1 Routing} *)
 
-val router : handler Wtr.t -> middleware
+val router : handler Wtr.router -> middleware
 
 (** {1 Handlers} *)
 

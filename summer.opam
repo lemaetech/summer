@@ -17,7 +17,7 @@ depends: [
   "tyxml" {>= "4.5.0"}
   "http-multipart-formdata" {>= "3.1.0"}
   "http-cookie" {>= "4.2.0"}
-  "wtr" {>= "2.0.0"}
+  "wtr" {>= "3.0.0"}
   "csexp" {>= "1.5.1"}
   "angstrom" {>= "0.15.0"}
   "uri" {>= "4.2.0"}

@@ -47,11 +47,11 @@ let counter : Summer.handler =
   |> Lwt.return
 
 let router =
-  Wtr.create
-    [ {%wtr| get     ; /about               |} about
-    ; {%wtr| get,post; /echo                |} echo
-    ; {%wtr| get     ; /say_hello/:string   |} say_hello
-    ; {%wtr| get     ; /counter             |} counter ]
+  Wtr.router'
+    [ {%routes| get     ; /about               |} about
+    ; {%routes| get,post; /echo                |} echo
+    ; {%routes| get     ; /say_hello/:string   |} say_hello
+    ; {%routes| get     ; /counter             |} counter ]
 
 let app =
   (* let mem_storage = Summer.memory_storage () in *)

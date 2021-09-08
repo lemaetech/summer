@@ -38,8 +38,8 @@ depends: [
   "http-cookie" {= "4.2.0"}
   "http-multipart-formdata" {= "3.1.0"}
   "jane-street-headers" {= "v0.14.0" & with-test}
-  "js_of_ocaml" {= "3.9.0"}
-  "js_of_ocaml-compiler" {= "3.9.1"}
+  "js_of_ocaml" {= "3.10.0"}
+  "js_of_ocaml-compiler" {= "3.10.0"}
   "jst-config" {= "v0.14.0" & with-test}
   "logs" {= "0.7.0"}
   "lwt" {= "5.4.2"}
@@ -52,7 +52,7 @@ depends: [
   "mtime" {= "1.2.0"}
   "ocaml" {= "4.12.0"}
   "ocaml-base-compiler" {= "4.12.0"}
-  "ocaml-compiler-libs" {= "v0.12.3"}
+  "ocaml-compiler-libs" {= "v0.12.4"}
   "ocaml-config" {= "2"}
   "ocaml-migrate-parsetree" {= "2.2.0"}
   "ocaml-options-vanilla" {= "1"}
@@ -91,7 +91,7 @@ depends: [
   "uchar" {= "0.0.2"}
   "uri" {= "4.2.0"}
   "uutf" {= "1.0.2"}
-  "wtr" {= "2.0.0"}
+  "wtr" {= "3.0.0"}
   "yojson" {= "1.7.0"}
 ]
 build: [
@@ -113,12 +113,6 @@ build: [
 ]
 dev-repo: "git+https://github.com/lemaetech/summer.git"
 pin-depends: [
-  [
-    "http-cookie.4.2.0"
-    "git+ssh://git@github.com/lemaetech/http-cookie.git#master"
-  ]
-  [
-    "http-multipart-formdata.3.1.0"
-    "git+ssh://git@github.com/lemaetech/http-mutlipart-formdata.git#master"
-  ]
+  "wtr.3.0.0"
+  "git+ssh://git@github.com/lemaetech/wtr.git#main"
 ]
