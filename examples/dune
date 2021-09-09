@@ -3,4 +3,4 @@
  (modules echo_server)
  (libraries summer lwt wtr)
  (preprocess
-  (pps wtr-ppx)))
+  (pps wtr-ppx lwt_ppx)))

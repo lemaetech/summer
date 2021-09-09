@@ -8,7 +8,6 @@
  * %%NAME%% %%VERSION%%
  *-------------------------------------------------------------------------*)
 
-open Lwt.Syntax
 open Tyxml.Html
 
 let about _req =
@@ -16,10 +15,9 @@ let about _req =
     (head (title (txt "Summer: Echo App")) [])
     (body [div [txt "About page"]])
   |> Summer.tyxml
-  |> Lwt.return
 
 let echo req =
-  let+ body =
+  let%lwt body =
     Lwt.catch (fun () -> Summer.body req) (fun _exn -> Lwt.return "")
   in
   Format.asprintf "%a@.@.%s" Summer.pp_request req body |> Summer.text
@@ -29,7 +27,6 @@ let say_hello name _req =
     (head (title (txt "Summer: Echo App")) [])
     (body [div [txt ("Hello " ^ name ^ "!")]])
   |> Summer.tyxml
-  |> Lwt.return
 
 let counter : Summer.handler =
  fun req ->
@@ -44,7 +41,6 @@ let counter : Summer.handler =
     (head (title (txt "Summer: Echo App")) [])
     (body [div [txt ("Hello " ^ string_of_int counter ^ "!")]])
   |> Summer.tyxml
-  |> Lwt.return
 
 let router =
   Wtr.router'

@@ -443,11 +443,13 @@ let text body =
   response ~response_code:ok
     ~headers:[("content-type", "text/plain; charset=UTF-8")]
     body
+  |> Lwt.return
 
 let html body =
   response ~response_code:ok
     ~headers:[("content-type", "text/html; charset=UTF-8")]
     body
+  |> Lwt.return
 
 let tyxml doc =
   let buf = Buffer.create 0 in
