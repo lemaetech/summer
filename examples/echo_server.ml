@@ -43,7 +43,7 @@ let counter : Summer.handler =
   |> Summer.tyxml
 
 let router =
-  Wtr.router'
+  Wtr.router
     [ {%routes| get     ; /about               |} about
     ; {%routes| get,post; /echo                |} echo
     ; {%routes| get     ; /say_hello/:string   |} say_hello
