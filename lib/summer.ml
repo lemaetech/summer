@@ -80,6 +80,12 @@ and middleware = handler -> handler
 
 and key = Cstruct.t
 
+and 'a mapped_dir =
+  { url_path: (Wtr.rest -> 'a, 'a) Wtr.path
+  ; local_dir_path: string
+  ; router: string Wtr.router
+  ; extension_to_mime: (string * string) list }
+
 let session_cookie_name = "__ID__"
 let anticsrf_cookie_name = "XSRF-TOKEN"
 let anticsrf_token_name = "x-xsrf-token"
@@ -699,11 +705,33 @@ let router router next_handler request =
   | Some handler -> handler request
   | None -> next_handler request
 
-(* Files Middleware *)
+(* Mapped Directory Middleware *)
 
-let files ?(dir_path = "./") _req =
-  let _ = dir_path in
-  failwith ""
+let mapped_dir ?(extension_to_mime = []) (url_path, local_dir_path) =
+  let extension_to_mime =
+    [ (".html", "text/html")
+    ; (".text", "text/plain")
+    ; (".css", "text/css")
+    ; (".js", "text/javascript")
+    ; (".avif", "image/avif")
+    ; (".gif", "image/gif")
+    ; (".jpg", "image/jpeg")
+    ; (".jpeg", "image/jpeg")
+    ; (".jfif", "image/jpeg")
+    ; (".pjpeg", "image/jpeg")
+    ; (".pjp", "image/jpeg")
+    ; (".png", "image/png")
+    ; (".svg", "image/svg+xml") ]
+    @ extension_to_mime
+  in
+  let request_target = Wtr.of_path url_path in
+  let router =
+    Wtr.router
+      [Wtr.routes [`GET] request_target (fun rest -> Wtr.rest_to_string rest)]
+  in
+  {url_path; local_dir_path; router; extension_to_mime}
+
+let serve_dir_files _mapped_dir _next_handler _req = failwith ""
 
 (* Write response *)
 

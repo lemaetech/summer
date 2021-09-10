@@ -51,6 +51,11 @@ and memory_storage
 (** Encryption/decryption key *)
 and key
 
+(** [mapped_dir] represents a local directory path which is mapped to a url
+    path. It also encapsulates a mapping from a file extension to a HTTP header
+    Content-Type value. It is used by the {!val:mapped_dir_files} middleware. *)
+and 'a mapped_dir
+
 (** {1 Request} *)
 
 val method' : request -> method'
@@ -250,15 +255,39 @@ val memory_session :
 
 val router : handler Wtr.router -> middleware
 
-(** {1 Handlers} *)
+(** {1 Mapped Directory} *)
 
-val files : ?dir_path:string -> handler
-(** [files ~dir_path:"public"] is a handler that responds to requests for static
-    file resources in [dir_path]. The default value of [dir_path] is the current
-    working directory of the executable.
+val mapped_dir :
+     ?extension_to_mime:(string * string) list
+  -> (Wtr.rest -> string, string) Wtr.path * string
+  -> string mapped_dir
+(**[mapped_dir ~extension_to_mime (url_path, local_path)] is {!type:mapped_dir}.
 
-    Static file resources are files in the filesystem, such as .html, .jpg,
-    .png, .js files. *)
+   [url_path] is the {i path} part of the [request_target] url which is mapped
+   to [local_path] - an {i absolute local path}.
+
+   [extension_to_mime] are additional {i file extension} to {i HTTP mime type}
+   mappings. Summer by default provides the following {i file extension} to
+   {i HTTP mime type} mappings:
+
+   + [.html,text/html]
+   + [.text, text/plain]
+   + [.css, text/css]
+   + [.js, text/javascript]
+   + [.avif, image/avif]
+   + [.gif, image/gif]
+   + [.jpg |.jpeg |.jfif |.pjpeg |.pjp, image/jpeg]
+   + [.png, image/png]
+   + [.svg, image/svg+xml]
+   + [.webp, image/webp]
+
+   The default value of [extension_mime_map] is [\[\]] *)
+
+val serve_dir_files : 'a mapped_dir -> middleware
+(** [serve_dir_files mapped_dir] is a middleware that responds to requests for
+    file resources specified at [mapped_dir]. *)
+
+(** {1 Other Handlers} *)
 
 val not_found : handler
 
