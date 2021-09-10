@@ -698,14 +698,14 @@ let memory_session ?expires ?max_age ms next_handler request =
   {response with cookies= Smap.add session_cookie_name cookie response.cookies}
   |> Lwt.return
 
-(* Routing *)
+(* Router Middleware *)
 
 let router router next_handler request =
   match Wtr.match' request.method' request.target router with
   | Some handler -> handler request
   | None -> next_handler request
 
-(* Mapped Directory Middleware *)
+(* Virtual Directory Middleware *)
 
 let virtual_dir ?(extension_to_mime = []) (url_path, local_dir_path) =
   let extension_to_mime =

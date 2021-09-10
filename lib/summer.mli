@@ -252,11 +252,11 @@ val memory_session :
 
     [cookie_name] is the name of the session cookie. *)
 
-(** {1 Routing} *)
+(** {1 Router Middleware} *)
 
 val router : handler Wtr.router -> middleware
 
-(** {1 Mapped Directory} *)
+(** {1 Virtual Directory Middleware} *)
 
 val virtual_dir :
      ?extension_to_mime:(string * string) list
