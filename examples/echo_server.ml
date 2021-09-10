@@ -52,13 +52,13 @@ let router =
 let app =
   (* let mem_storage = Summer.memory_storage () in *)
   (* Summer.memory_session ~cookie_name:"__session__" mem_storage *)
-  let virtual_path =
+  let virtual_dir =
     let url_path = Wtr.(exact "public" //. rest) in
-    Summer.virtual_path (url_path, "/home/app1/public")
+    Summer.virtual_dir (url_path, "/home/app1/public")
   in
   let key = Summer.key 32 in
   Summer.cookie_session key
-  @@ Summer.serve_dir_files virtual_path
+  @@ Summer.serve_dir virtual_dir
   @@ Summer.anticsrf key
   @@ Summer.router router
   @@ Summer.not_found
