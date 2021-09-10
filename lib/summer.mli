@@ -53,7 +53,7 @@ and key
 
 (** [virtual_dir] is a HTTP request_target path that is mapped to a local
     directory path. It also encapsulates a mapping from a file extension to a
-    HTTP header Content-Type value. It is used by the {!val:serve_dir_files}
+    HTTP header Content-Type value. It is used by the {!val:serve_files}
     middleware. *)
 and 'a virtual_dir
 
@@ -285,8 +285,8 @@ val virtual_dir :
 
    The default value of [extension_mime_map] is [\[\]] *)
 
-val serve_dir : 'a virtual_dir -> middleware
-(** [serve_dir virtual_dir] is a middleware that responds to requests for file
+val serve_files : 'a virtual_dir -> middleware
+(** [serve_files virtual_dir] is a middleware that responds to requests for file
     resources specified at [virtual_dir]. *)
 
 (** {1 Other Handlers} *)

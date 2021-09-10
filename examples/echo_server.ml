@@ -58,7 +58,7 @@ let app =
   in
   let key = Summer.key 32 in
   Summer.cookie_session key
-  @@ Summer.serve_dir virtual_dir
+  @@ Summer.serve_files virtual_dir
   @@ Summer.anticsrf key
   @@ Summer.router router
   @@ Summer.not_found

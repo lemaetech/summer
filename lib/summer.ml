@@ -730,7 +730,7 @@ let virtual_dir ?(extension_to_mime = []) (url_path, local_dir_path) =
   in
   {url_path; local_dir_path; router; extension_to_mime}
 
-let serve_dir _virtual_path _next_handler _req = failwith ""
+let serve_files _virtual_path _next_handler _req = failwith ""
 
 (* Write response *)
 
