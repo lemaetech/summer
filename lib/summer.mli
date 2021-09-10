@@ -51,10 +51,11 @@ and memory_storage
 (** Encryption/decryption key *)
 and key
 
-(** [mapped_dir] represents a local directory path which is mapped to a url
-    path. It also encapsulates a mapping from a file extension to a HTTP header
-    Content-Type value. It is used by the {!val:mapped_dir_files} middleware. *)
-and 'a mapped_dir
+(** [virtual_path] is a HTTP request_target path that is mapped to a local
+    directory path. It also encapsulates a mapping from a file extension to a
+    HTTP header Content-Type value. It is used by the {!val:serve_dir_files}
+    middleware. *)
+and 'a virtual_path
 
 (** {1 Request} *)
 
@@ -257,11 +258,12 @@ val router : handler Wtr.router -> middleware
 
 (** {1 Mapped Directory} *)
 
-val mapped_dir :
+val virtual_path :
      ?extension_to_mime:(string * string) list
   -> (Wtr.rest -> string, string) Wtr.path * string
-  -> string mapped_dir
-(**[mapped_dir ~extension_to_mime (url_path, local_path)] is {!type:mapped_dir}.
+  -> string virtual_path
+(**[virtual_path ~extension_to_mime (url_path, local_path)] is
+   {!type:virtual_path}.
 
    [url_path] is the {i path} part of the [request_target] url which is mapped
    to [local_path] - an {i absolute local path}.
@@ -283,9 +285,9 @@ val mapped_dir :
 
    The default value of [extension_mime_map] is [\[\]] *)
 
-val serve_dir_files : 'a mapped_dir -> middleware
-(** [serve_dir_files mapped_dir] is a middleware that responds to requests for
-    file resources specified at [mapped_dir]. *)
+val serve_dir_files : 'a virtual_path -> middleware
+(** [serve_dir_files virtual_path] is a middleware that responds to requests for
+    file resources specified at [virtual_path]. *)
 
 (** {1 Other Handlers} *)
 
