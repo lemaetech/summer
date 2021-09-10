@@ -726,8 +726,7 @@ let virtual_path ?(extension_to_mime = []) (url_path, local_dir_path) =
   in
   let request_target = Wtr.of_path url_path in
   let router =
-    Wtr.router
-      [Wtr.routes [`GET] request_target (fun rest -> Wtr.rest_to_string rest)]
+    Wtr.router [Wtr.routes [`GET] request_target Wtr.rest_to_string]
   in
   {url_path; local_dir_path; router; extension_to_mime}
 
