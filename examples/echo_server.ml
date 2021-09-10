@@ -53,7 +53,7 @@ let app =
   (* let mem_storage = Summer.memory_storage () in *)
   (* Summer.memory_session ~cookie_name:"__session__" mem_storage *)
   let virtual_path =
-    let url_path = Wtr.(exact "/public" //. rest) in
+    let url_path = Wtr.(exact "public" //. rest) in
     Summer.virtual_path (url_path, "/home/app1/public")
   in
   let key = Summer.key 32 in
