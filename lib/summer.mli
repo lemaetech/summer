@@ -55,7 +55,7 @@ and key
     directory path. It also encapsulates a mapping from a file extension to a
     HTTP header Content-Type value. It is used by the {!val:serve_files}
     middleware. *)
-and 'a virtual_dir
+and virtual_dir
 
 (** {1 Request} *)
 
@@ -261,7 +261,7 @@ val router : handler Wtr.router -> middleware
 val virtual_dir :
      ?extension_to_mime:(string * string) list
   -> (Wtr.rest -> string, string) Wtr.path * string
-  -> string virtual_dir
+  -> virtual_dir
 (**[virtual_dir ~extension_to_mime (url_path, local_path)] is
    {!type:virtual_dir}.
 
@@ -285,7 +285,7 @@ val virtual_dir :
 
    The default value of [extension_mime_map] is [\[\]] *)
 
-val serve_files : 'a virtual_dir -> middleware
+val serve_files : virtual_dir -> middleware
 (** [serve_files virtual_dir] is a middleware that responds to requests for file
     resources specified at [virtual_dir]. *)
 

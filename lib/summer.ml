@@ -80,9 +80,8 @@ and middleware = handler -> handler
 
 and key = Cstruct.t
 
-and 'a virtual_dir =
-  { url_path: (Wtr.rest -> 'a, 'a) Wtr.path
-  ; local_dir_path: string
+and virtual_dir =
+  { local_dir_path: string
   ; router: string Wtr.router
   ; extension_to_mime: (string * string) list }
 
@@ -724,11 +723,9 @@ let virtual_dir ?(extension_to_mime = []) (url_path, local_dir_path) =
     ; (".svg", "image/svg+xml") ]
     @ extension_to_mime
   in
-  let request_target = Wtr.of_path url_path in
-  let router =
-    Wtr.router [Wtr.routes [`GET] request_target Wtr.rest_to_string]
-  in
-  {url_path; local_dir_path; router; extension_to_mime}
+  let routes = Wtr.(routes [`GET] (of_path url_path) rest_to_string) in
+  let router = Wtr.router [routes] in
+  {local_dir_path; router; extension_to_mime}
 
 let serve_files _virtual_path _next_handler _req = failwith ""
 
