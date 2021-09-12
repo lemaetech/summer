@@ -82,6 +82,7 @@ and key = Cstruct.t
 
 and virtual_cached_dir =
   { cache: (string * Cstruct.buffer) Fpath.Map.t
+  ; local_path: Fpath.t
   ; router: string Wtr.router
   ; extension_to_mime: (string * string) list }
 
@@ -734,7 +735,8 @@ let virtual_cached_dir ?(extension_to_mime = []) (url_path, local_dir_path) =
         let cache = Fpath.Map.add path (mime, content) cache in
         make_cache cache paths
   in
-  Bos.OS.Dir.contents ~rel:true @@ Fpath.v local_dir_path
+  let local_path = Fpath.(normalize @@ v local_dir_path) in
+  Bos.OS.Dir.contents local_path
   >>= Bos.OS.Path.fold
         (fun path paths ->
           let ext = Fpath.get_ext ~multi:true path in
@@ -746,7 +748,7 @@ let virtual_cached_dir ?(extension_to_mime = []) (url_path, local_dir_path) =
   >>| (fun cache ->
         let routes = Wtr.(routes [`GET] (of_path url_path) rest_to_string) in
         let router = Wtr.router [routes] in
-        {cache; router; extension_to_mime} )
+        {cache; local_path; router; extension_to_mime} )
   |> function Ok dir -> dir | e -> Rresult.R.failwith_error_msg e
 
 module Option = struct
@@ -759,7 +761,8 @@ end
 let serve_cached_files v_cached_dir next_handler req =
   Option.(
     let* v_path = Wtr.match' req.method' req.target v_cached_dir.router in
-    let+ mime, content = Fpath.Map.find (Fpath.v v_path) v_cached_dir.cache in
+    let full_path = Fpath.(append v_cached_dir.local_path @@ v v_path) in
+    let+ mime, content = Fpath.Map.find full_path v_cached_dir.cache in
     Lwt.return
     @@ response_bigstring ~response_code:ok
          ~headers:[("content-type", Format.sprintf "%s; charset=UTF-8" mime)]
