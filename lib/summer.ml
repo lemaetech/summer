@@ -691,8 +691,8 @@ let memory_session ?expires ?max_age ms next_handler request =
   let%lwt response = next_handler request in
   Hashtbl.replace ms session_id request.session_data ;
   let cookie =
-    Http_cookie.create ?expires ?max_age ~http_only:true ~same_site:`Strict
-      ~name:session_cookie_name session_id
+    Http_cookie.create ~path:"/" ?expires ?max_age ~http_only:true
+      ~same_site:`Strict ~name:session_cookie_name session_id
     |> Result.get_ok
   in
   {response with cookies= Smap.add session_cookie_name cookie response.cookies}
