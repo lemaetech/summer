@@ -610,7 +610,7 @@ let anticsrf ?(protected_http_methods = [`POST; `PUT; `DELETE]) ?excluded_routes
   let request = {request with anticsrf_token} in
   let%lwt response = next request in
   let anticsrf_cookie =
-    Http_cookie.create ~http_only:true ~same_site:`Strict
+    Http_cookie.create ~path:"/" ~http_only:true ~same_site:`Strict
       ~name:anticsrf_cookie_name anticsrf_token
     |> Result.get_ok
   in
@@ -665,8 +665,8 @@ let cookie_session ?expires ?max_age key next_handler request =
   let%lwt response = next_handler request in
   let session_data = encode_session_data request.session_data in
   let cookie =
-    Http_cookie.create ?expires ?max_age ~http_only:true ~same_site:`Strict
-      ~name:session_cookie_name session_data
+    Http_cookie.create ~path:"/" ?expires ?max_age ~http_only:true
+      ~same_site:`Strict ~name:session_cookie_name session_data
     |> Result.get_ok
   in
   {response with cookies= Smap.add session_cookie_name cookie response.cookies}

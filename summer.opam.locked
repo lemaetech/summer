@@ -12,7 +12,7 @@ homepage: "https://github.com/lemaetech/summer"
 bug-reports: "https://github.com/lemaetech/summer/issues"
 depends: [
   "angstrom" {= "0.15.0"}
-  "astring" {= "0.8.5" & with-doc}
+  "astring" {= "0.8.5"}
   "base" {= "v0.14.1" & with-test}
   "base-bigarray" {= "base"}
   "base-bytes" {= "base"}
@@ -22,27 +22,29 @@ depends: [
   "bigarray-compat" {= "1.0.0"}
   "bigstringaf" {= "0.8.0"}
   "biniou" {= "1.2.1"}
+  "bos" {= "0.2.0"}
   "cmdliner" {= "1.0.4"}
   "conf-libev" {= "4-12"}
   "conf-pkg-config" {= "2"}
   "cppo" {= "1.6.7"}
   "csexp" {= "1.5.1"}
   "cstruct" {= "6.0.1"}
-  "dune" {= "2.9.0"}
-  "dune-configurator" {= "2.9.0"}
+  "dune" {= "2.9.1"}
+  "dune-configurator" {= "2.9.1"}
   "duration" {= "0.2.0"}
   "easy-format" {= "1.3.2"}
   "eqaf" {= "0.8"}
   "fmt" {= "0.8.9"}
-  "fpath" {= "0.7.3" & with-doc}
+  "fpath" {= "0.7.3"}
   "http-cookie" {= "4.2.0"}
   "http-multipart-formdata" {= "3.1.0"}
   "jane-street-headers" {= "v0.14.0" & with-test}
   "js_of_ocaml" {= "3.10.0"}
   "js_of_ocaml-compiler" {= "3.10.0"}
-  "jst-config" {= "v0.14.0" & with-test}
+  "jst-config" {= "v0.14.1" & with-test}
   "logs" {= "0.7.0"}
   "lwt" {= "5.4.2"}
+  "lwt_ppx" {= "2.0.2"}
   "menhir" {= "20210419"}
   "menhirLib" {= "20210419"}
   "menhirSdk" {= "20210419"}
@@ -80,6 +82,7 @@ depends: [
   "ppxlib" {= "0.22.2"}
   "re" {= "1.9.0"}
   "result" {= "1.5"}
+  "rresult" {= "0.6.0"}
   "seq" {= "base"}
   "sexplib0" {= "v0.14.0"}
   "stdio" {= "v0.14.0" & with-test}
@@ -95,20 +98,19 @@ depends: [
   "yojson" {= "1.7.0"}
 ]
 build: [
-  ["dune" "subst" "--root" "."] {dev}
+  ["dune" "subst"] {dev}
   [
-    "dune"
-    "build"
-    "-p"
-    name
-    "-j"
-    jobs
-    "--promote-install-files"
-    "false"
-    "@install"
-    "@runtest" {with-test}
-    "@doc" {with-doc}
-  ]
+  "dune"
+  "build"
+  "-p"
+  name
+  "-j"
+  jobs
+  "--promote-install-files=false"
+  "@install"
+  "@runtest" {with-test}
+  "@doc" {with-doc}
+]
   ["dune" "install" "-p" name "--create-install-files" name]
 ]
 dev-repo: "git+https://github.com/lemaetech/summer.git"
