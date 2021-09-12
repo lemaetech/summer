@@ -13,6 +13,9 @@
   lwt
   lwt.unix
   fmt
+  fpath
+  bos
+  rresult
   base64
   mirage-crypto
   mirage-crypto-rng.unix)

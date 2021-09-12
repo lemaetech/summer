@@ -80,6 +80,12 @@ and middleware = handler -> handler
 
 and key = Cstruct.t
 
+and virtual_cached_dir =
+  { cache: (string * Cstruct.buffer) Fpath.Map.t
+  ; local_path: Fpath.t
+  ; router: string Wtr.router
+  ; extension_to_mime: (string * string) list }
+
 let session_cookie_name = "__ID__"
 let anticsrf_cookie_name = "XSRF-TOKEN"
 let anticsrf_token_name = "x-xsrf-token"
@@ -443,11 +449,13 @@ let text body =
   response ~response_code:ok
     ~headers:[("content-type", "text/plain; charset=UTF-8")]
     body
+  |> Lwt.return
 
 let html body =
   response ~response_code:ok
     ~headers:[("content-type", "text/html; charset=UTF-8")]
     body
+  |> Lwt.return
 
 let tyxml doc =
   let buf = Buffer.create 0 in
@@ -473,16 +481,11 @@ let remove_cookie cookie_name response =
   {response with cookies}
 
 let add_header ~name value response =
-  {response with headers= (name, value) :: response.headers}
+  { response with
+    headers= (String.lowercase_ascii name, value) :: response.headers }
 
 let remove_header name response =
   {response with headers= List.remove_assoc name response.headers}
-
-(* Routing *)
-let router router next_handler request =
-  match Wtr.match' request.method' request.target router with
-  | Some handler -> handler request
-  | None -> next_handler request
 
 (* Encryption/decryption *)
 
@@ -607,7 +610,7 @@ let anticsrf ?(protected_http_methods = [`POST; `PUT; `DELETE]) ?excluded_routes
   let request = {request with anticsrf_token} in
   let%lwt response = next request in
   let anticsrf_cookie =
-    Http_cookie.create ~http_only:true ~same_site:`Strict
+    Http_cookie.create ~path:"/" ~http_only:true ~same_site:`Strict
       ~name:anticsrf_cookie_name anticsrf_token
     |> Result.get_ok
   in
@@ -662,8 +665,8 @@ let cookie_session ?expires ?max_age key next_handler request =
   let%lwt response = next_handler request in
   let session_data = encode_session_data request.session_data in
   let cookie =
-    Http_cookie.create ?expires ?max_age ~http_only:true ~same_site:`Strict
-      ~name:session_cookie_name session_data
+    Http_cookie.create ~path:"/" ?expires ?max_age ~http_only:true
+      ~same_site:`Strict ~name:session_cookie_name session_data
     |> Result.get_ok
   in
   {response with cookies= Smap.add session_cookie_name cookie response.cookies}
@@ -688,12 +691,83 @@ let memory_session ?expires ?max_age ms next_handler request =
   let%lwt response = next_handler request in
   Hashtbl.replace ms session_id request.session_data ;
   let cookie =
-    Http_cookie.create ?expires ?max_age ~http_only:true ~same_site:`Strict
-      ~name:session_cookie_name session_id
+    Http_cookie.create ~path:"/" ?expires ?max_age ~http_only:true
+      ~same_site:`Strict ~name:session_cookie_name session_id
     |> Result.get_ok
   in
   {response with cookies= Smap.add session_cookie_name cookie response.cookies}
   |> Lwt.return
+
+(* Router Middleware *)
+
+let router router next_handler request =
+  match Wtr.match' request.method' request.target router with
+  | Some handler -> handler request
+  | None -> next_handler request
+
+(* Virtual Directory Middleware *)
+
+let virtual_cached_dir ?(extension_to_mime = []) (url_path, local_dir_path) =
+  let extension_to_mime =
+    [ (".html", "text/html")
+    ; (".text", "text/plain")
+    ; (".css", "text/css")
+    ; (".js", "text/javascript")
+    ; (".avif", "image/avif")
+    ; (".gif", "image/gif")
+    ; (".jpg", "image/jpeg")
+    ; (".jpeg", "image/jpeg")
+    ; (".jfif", "image/jpeg")
+    ; (".pjpeg", "image/jpeg")
+    ; (".pjp", "image/jpeg")
+    ; (".png", "image/png")
+    ; (".svg", "image/svg+xml") ]
+    @ extension_to_mime
+  in
+  let open Rresult in
+  let rec make_cache cache paths =
+    match paths with
+    | [] -> Ok cache
+    | (path, mime) :: paths ->
+        Bos.OS.File.read path
+        >>= fun content ->
+        let content = Cstruct.(of_string content |> to_bigarray) in
+        let cache = Fpath.Map.add path (mime, content) cache in
+        make_cache cache paths
+  in
+  let local_path = Fpath.(normalize @@ v local_dir_path) in
+  Bos.OS.Dir.contents local_path
+  >>= Bos.OS.Path.fold
+        (fun path paths ->
+          let ext = Fpath.get_ext ~multi:true path in
+          match List.assoc_opt ext extension_to_mime with
+          | Some mime -> (path, mime) :: paths
+          | None -> paths )
+        []
+  >>= make_cache Fpath.Map.empty
+  >>| (fun cache ->
+        let routes = Wtr.(routes [`GET] (of_path url_path) rest_to_string) in
+        let router = Wtr.router [routes] in
+        {cache; local_path; router; extension_to_mime} )
+  |> function Ok dir -> dir | e -> Rresult.R.failwith_error_msg e
+
+module Option = struct
+  include Option
+
+  let ( let* ) o f = Option.bind o f
+  let ( let+ ) o f = Option.map f o
+end
+
+let serve_cached_files v_cached_dir next_handler req =
+  Option.(
+    let* v_path = Wtr.match' req.method' req.target v_cached_dir.router in
+    let full_path = Fpath.(append v_cached_dir.local_path @@ v v_path) in
+    let+ mime, content = Fpath.Map.find full_path v_cached_dir.cache in
+    Lwt.return
+    @@ response_bigstring ~response_code:ok
+         ~headers:[("content-type", Format.sprintf "%s; charset=UTF-8" mime)]
+         content)
+  |> function Some response -> response | None -> next_handler req
 
 (* Write response *)
 

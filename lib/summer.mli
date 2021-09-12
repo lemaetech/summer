@@ -51,6 +51,13 @@ and memory_storage
 (** Encryption/decryption key *)
 and key
 
+(** [virtual_cached_dir] is an in-memory cache of files of a specific local
+    directory {i local}.i The contents of files in {i local} are recursively
+    read and added to [virtual_cached_dir]. It also encapsulates a mapping from
+    a file extension to a HTTP header Content-Type value. See
+    {!val:serve_cached_files} middleware for usage. *)
+and virtual_cached_dir
+
 (** {1 Request} *)
 
 val method' : request -> method'
@@ -154,15 +161,15 @@ val response_bigstring :
   -> response
 (** [response_bigstring] similar to {!type:response} except body is a bigstring. *)
 
-val text : string -> response
+val text : string -> response Lwt.t
 (** [text body] creates a response with HTTP status 200 and content-type of
     ["text/plain; charset=utf-8"]. *)
 
-val html : string -> response
+val html : string -> response Lwt.t
 (** [text body] creates a response with HTTP status 200 and content-type of
     ["text/html; charset=UTF-8"]. *)
 
-val tyxml : Tyxml.Html.doc -> response
+val tyxml : Tyxml.Html.doc -> response Lwt.t
 
 (** {2 Cookies} *)
 
@@ -174,8 +181,6 @@ val add_cookie : Http_cookie.t -> response -> response
 val remove_cookie : string -> response -> response
 (** [remove_cookie cookie_name response] removes cookie with [cookie_name] from
     response if it exists. *)
-
-val not_found : handler
 
 (** {2 Headers} *)
 
@@ -203,7 +208,7 @@ val anticsrf_token : request -> string
 
 val anticsrf :
      ?protected_http_methods:method' list
-  -> ?excluded_routes:bool Wtr.t
+  -> ?excluded_routes:bool Wtr.router
   -> key
   -> middleware
 
@@ -248,9 +253,61 @@ val memory_session :
 
     [cookie_name] is the name of the session cookie. *)
 
-(** {1 Routing} *)
+(** {1 Router Middleware} *)
 
-val router : handler Wtr.t -> middleware
+val router : handler Wtr.router -> middleware
+
+(** {1 Virtual Directory Middleware} *)
+
+val virtual_cached_dir :
+     ?extension_to_mime:(string * string) list
+  -> (Wtr.rest -> string, string) Wtr.path * string
+  -> virtual_cached_dir
+(**[virtual_cached_dir ~extension_to_mime (url_path, local_path)] is
+   {!type:virtual_cached_dir}.
+
+   [extension_to_mime] are additional {i file extension} to {i HTTP mime type}
+   mappings. Summer by default provides the following {i file extension} to
+   {i HTTP mime type} mappings:
+
+   + [.html,text/html]
+   + [.text, text/plain]
+   + [.css, text/css]
+   + [.js, text/javascript]
+   + [.avif, image/avif]
+   + [.gif, image/gif]
+   + [.jpg |.jpeg |.jfif |.pjpeg |.pjp, image/jpeg]
+   + [.png, image/png]
+   + [.svg, image/svg+xml]
+   + [.webp, image/webp]
+
+   The default of [extension_mime_map] is [\[\]].
+
+   [url_path] is the {i path} part of the [request_target] url which is mapped
+   to [local_path].
+
+   [local_path] is an {i absolute} or a {i relative} path.
+
+   Any file with an unrecognized file extension (i.e. no mime mapping) will not
+   be cached. This means a possible [404 Not Found] response is sent back for
+   the requested file resource.
+
+   @raise Failure when any error is encountered while reading [local_path] *)
+
+val serve_cached_files : virtual_cached_dir -> middleware
+(** [serve_cached_files virtual_cached_dir] is a middleware that responds to
+    requests for static file resources - such as *.css, *.js, *.jpg, *.png, etc
+    \- specified at [virtual_cached_dir].
+
+    {b *Note*} Use this middleware only on development and testing environments.
+    In production environments, it is recommended to use web servers for serving
+    static file resources. *)
+
+(** {1 Other Handlers} *)
+
+val not_found : handler
+
+(** {1 Start} *)
 
 val start : port:int -> handler -> unit
 (** [start port request_handler] Starts HTTP/1.1 server at [port]. *)
