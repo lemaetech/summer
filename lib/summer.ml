@@ -756,7 +756,7 @@ module Option = struct
   let ( let+ ) o f = Option.map f o
 end
 
-let serve_files v_cached_dir next_handler req =
+let serve_cached_files v_cached_dir next_handler req =
   Option.(
     let* v_path = Wtr.match' req.method' req.target v_cached_dir.router in
     let+ mime, content = Fpath.Map.find (Fpath.v v_path) v_cached_dir.cache in
