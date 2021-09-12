@@ -80,8 +80,8 @@ and middleware = handler -> handler
 
 and key = Cstruct.t
 
-and virtual_dir =
-  { local_dir_path: string
+and virtual_cached_dir =
+  { cache: (string * Cstruct.buffer) Fpath.Map.t
   ; router: string Wtr.router
   ; extension_to_mime: (string * string) list }
 
@@ -706,7 +706,7 @@ let router router next_handler request =
 
 (* Virtual Directory Middleware *)
 
-let virtual_dir ?(extension_to_mime = []) (url_path, local_dir_path) =
+let virtual_cached_dir ?(extension_to_mime = []) (url_path, local_dir_path) =
   let extension_to_mime =
     [ (".html", "text/html")
     ; (".text", "text/plain")
@@ -723,11 +723,48 @@ let virtual_dir ?(extension_to_mime = []) (url_path, local_dir_path) =
     ; (".svg", "image/svg+xml") ]
     @ extension_to_mime
   in
-  let routes = Wtr.(routes [`GET] (of_path url_path) rest_to_string) in
-  let router = Wtr.router [routes] in
-  {local_dir_path; router; extension_to_mime}
+  let open Rresult in
+  let rec make_cache cache paths =
+    match paths with
+    | [] -> Ok cache
+    | (path, mime) :: paths ->
+        Bos.OS.File.read path
+        >>= fun content ->
+        let content = Cstruct.(of_string content |> to_bigarray) in
+        let cache = Fpath.Map.add path (mime, content) cache in
+        make_cache cache paths
+  in
+  Bos.OS.Dir.contents ~rel:true @@ Fpath.v local_dir_path
+  >>= Bos.OS.Path.fold
+        (fun path paths ->
+          let ext = Fpath.get_ext ~multi:true path in
+          match List.assoc_opt ext extension_to_mime with
+          | Some mime -> (path, mime) :: paths
+          | None -> paths )
+        []
+  >>= make_cache Fpath.Map.empty
+  >>| (fun cache ->
+        let routes = Wtr.(routes [`GET] (of_path url_path) rest_to_string) in
+        let router = Wtr.router [routes] in
+        {cache; router; extension_to_mime} )
+  |> function Ok dir -> dir | e -> Rresult.R.failwith_error_msg e
 
-let serve_files _virtual_path _next_handler _req = failwith ""
+module Option = struct
+  include Option
+
+  let ( let* ) o f = Option.bind o f
+  let ( let+ ) o f = Option.map f o
+end
+
+let serve_files v_cached_dir next_handler req =
+  Option.(
+    let* v_path = Wtr.match' req.method' req.target v_cached_dir.router in
+    let+ mime, content = Fpath.Map.find (Fpath.v v_path) v_cached_dir.cache in
+    Lwt.return
+    @@ response_bigstring ~response_code:ok
+         ~headers:[("content-type", Format.sprintf "%s; charset=UTF-8" mime)]
+         content)
+  |> function Some response -> response | None -> next_handler req
 
 (* Write response *)
 

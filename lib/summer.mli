@@ -51,11 +51,12 @@ and memory_storage
 (** Encryption/decryption key *)
 and key
 
-(** [virtual_dir] is a HTTP request_target path that is mapped to a local
-    directory path. It also encapsulates a mapping from a file extension to a
-    HTTP header Content-Type value. It is used by the {!val:serve_files}
-    middleware. *)
-and virtual_dir
+(** [virtual_cached_dir] is an in-memory cache of files of a specific local
+    directory {i local}.i The contents of files in {i local} are recursively
+    read and added to [virtual_cached_dir]. It also encapsulates a mapping from
+    a file extension to a HTTP header Content-Type value. See
+    {!val:serve_cached_files} middleware for usage. *)
+and virtual_cached_dir
 
 (** {1 Request} *)
 
@@ -258,15 +259,12 @@ val router : handler Wtr.router -> middleware
 
 (** {1 Virtual Directory Middleware} *)
 
-val virtual_dir :
+val virtual_cached_dir :
      ?extension_to_mime:(string * string) list
   -> (Wtr.rest -> string, string) Wtr.path * string
-  -> virtual_dir
-(**[virtual_dir ~extension_to_mime (url_path, local_path)] is
-   {!type:virtual_dir}.
-
-   [url_path] is the {i path} part of the [request_target] url which is mapped
-   to [local_path] - an {i absolute local path}.
+  -> virtual_cached_dir
+(**[virtual_cached_dir ~extension_to_mime (url_path, local_path)] is
+   {!type:virtual_cached_dir}.
 
    [extension_to_mime] are additional {i file extension} to {i HTTP mime type}
    mappings. Summer by default provides the following {i file extension} to
@@ -283,11 +281,27 @@ val virtual_dir :
    + [.svg, image/svg+xml]
    + [.webp, image/webp]
 
-   The default value of [extension_mime_map] is [\[\]] *)
+   The default of [extension_mime_map] is [\[\]].
 
-val serve_files : virtual_dir -> middleware
-(** [serve_files virtual_dir] is a middleware that responds to requests for file
-    resources specified at [virtual_dir]. *)
+   [url_path] is the {i path} part of the [request_target] url which is mapped
+   to [local_path].
+
+   [local_path] is an {i absolute} or a {i relative} path.
+
+   Any file with an unrecognized file extension (i.e. no mime mapping) will not
+   be cached. This means a possible [404 Not Found] response is sent back for
+   the requested file resource.
+
+   @raise Failure when any error is encountered while reading [local_path] *)
+
+val serve_cached_files : virtual_cached_dir -> middleware
+(** [serve_cached_files virtual_cached_dir] is a middleware that responds to
+    requests for static file resources - such as *.css, *.js, *.jpg, *.png, etc
+    \- specified at [virtual_cached_dir].
+
+    {b *Note*} Use this middleware only on development and testing environments.
+    In production environments, it is recommended to use web servers for serving
+    static file resources. *)
 
 (** {1 Other Handlers} *)
 
