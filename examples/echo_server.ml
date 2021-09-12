@@ -54,7 +54,7 @@ let app =
   (* Summer.memory_session ~cookie_name:"__session__" mem_storage *)
   let virtual_cached_dir =
     let url_path = Wtr.(exact "public" //. rest) in
-    Summer.virtual_cached_dir (url_path, "./public")
+    Summer.virtual_cached_dir (url_path, "./examples/public")
   in
   let key = Summer.key 32 in
   Summer.cookie_session key
