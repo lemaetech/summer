@@ -17,12 +17,16 @@ depends: [
   "tyxml" {>= "4.5.0"}
   "http-multipart-formdata" {>= "3.1.0"}
   "http-cookie" {>= "4.2.0"}
-  "wtr" {>= "2.0.0"}
+  "wtr" {>= "3.0.0"}
   "csexp" {>= "1.5.1"}
   "angstrom" {>= "0.15.0"}
   "uri" {>= "4.2.0"}
+  "fpath" {>= "0.7.3"}
+  "bos" {>= "0.2.0"}
+  "rresult" {>= "0.6.0"}
   "fmt" {>= "0.8.9"}
   "lwt" {>= "5.4.1"}
+  "lwt_ppx" {>= "2.0.2"}
   "base64" {>= "3.5.0"}
   "mirage-crypto" {>= "0.10.3"}
   "mirage-crypto-rng" {>= "0.10.3"}
@@ -31,7 +35,7 @@ depends: [
   "odoc" {with-doc}
 ]
 build: [
-  ["dune" "subst" "--root" "."] {dev}
+  ["dune" "subst"] {dev}
   [
     "dune"
     "build"
@@ -39,8 +43,7 @@ build: [
     name
     "-j"
     jobs
-    "--promote-install-files"
-    "false"
+    "--promote-install-files=false"
     "@install"
     "@runtest" {with-test}
     "@doc" {with-doc}
