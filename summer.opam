@@ -12,7 +12,7 @@ homepage: "https://github.com/lemaetech/summer"
 bug-reports: "https://github.com/lemaetech/summer/issues"
 depends: [
   "dune" {>= "2.9"}
-  "ocaml" {>= "4.10.0"}
+  "ocaml" {>= "4.13.0"}
   "cstruct" {>= "6.0.1"}
   "tyxml" {>= "4.5.0"}
   "http-multipart-formdata" {>= "3.1.0"}

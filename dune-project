@@ -24,7 +24,7 @@
   ("http" "form" "web"))
  (depends
   (ocaml
-   (>= 4.10.0))
+   (>= 4.13.0))
   (cstruct
    (>= 6.0.1))
   (tyxml

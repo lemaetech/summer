@@ -910,6 +910,7 @@ and process_request fd handler (req : request) =
 
 let start ~port request_handler =
   let listen_address = Unix.(ADDR_INET (inet_addr_loopback, port)) in
+  Lwt_engine.set (new Lwt_engine.libev ()) ;
   Lwt.async (fun () ->
       let%lwt (_ : Lwt_io.server) =
         Lwt_io.establish_server_with_client_socket ~backlog:11_000
