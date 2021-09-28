@@ -23,8 +23,9 @@ depends: [
   "bigstringaf" {= "0.8.0"}
   "bos" {= "0.2.0"}
   "cmdliner" {= "1.0.4"}
+  "conf-libev" {= "4-12"}
   "conf-pkg-config" {= "2"}
-  "cppo" {= "1.6.7"}
+  "cppo" {= "1.6.8"}
   "csexp" {= "1.5.1"}
   "cstruct" {= "6.0.1"}
   "dune" {= "2.9.1"}
