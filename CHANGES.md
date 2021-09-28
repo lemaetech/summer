@@ -1,3 +1,3 @@
-## v0.0.1 2020-08-01 
+## v0.0.1 [unreleased]
 
 - Initial release 
